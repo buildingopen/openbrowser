@@ -258,7 +258,11 @@ export class ChromeService {
   launchForLogin(): ChildProcess {
     const chromeBinary = findChromeBinary();
     if (!chromeBinary) {
-      throw new Error('Chrome not found.');
+      const os = detectOS();
+      const installHint = os === 'darwin'
+        ? 'Install from https://google.com/chrome or: brew install --cask google-chrome'
+        : 'Install with: sudo apt install google-chrome-stable (or: sudo dnf install google-chrome-stable)';
+      throw new Error(`Chrome not found. ${installHint}`);
     }
 
     cleanStaleLocks(this.config.profileDir);
@@ -294,7 +298,7 @@ export class ChromeService {
       execSync(`pgrep -f "Xvfb ${display}"`, { encoding: 'utf-8' });
       // already running
     } catch {
-      spawn('Xvfb', [display, '-screen', '0', '1280x800x24'], {
+      spawn('Xvfb', [display, '-screen', '0', '1280x800x24', '-ac', '-nolisten', 'tcp'], {
         stdio: 'ignore',
         detached: true,
       }).unref();
@@ -308,6 +312,7 @@ export class ChromeService {
       [
         '-display',
         this.config.xvfbDisplay,
+        '-noxauth',
         '-passwd',
         this.config.vncPassword,
         '-rfbport',
