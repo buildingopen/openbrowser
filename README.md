@@ -4,20 +4,30 @@ Managed authenticated browser for AI agents. Persistent Chrome sessions with CDP
 
 Supports **macOS** and **Linux**. Windows is not supported.
 
+## Install
+
+```bash
+npm install -g openbrowser-ai
+```
+
+Or use directly with `npx openbrowser-ai <command>`.
+
+Both `openbrowser-ai` and `openbrowser` work as CLI names.
+
 ## Quick Start
 
 ```bash
 # Install and configure
-npx openbrowser setup
+npx openbrowser-ai setup
 
 # Log into websites (opens Chrome GUI on macOS, VNC on Linux)
-npx openbrowser login
+npx openbrowser-ai login
 
 # Check status
-npx openbrowser status
+npx openbrowser-ai status
 
 # Full diagnostics
-npx openbrowser doctor
+npx openbrowser-ai doctor
 ```
 
 ## Commands
@@ -50,7 +60,7 @@ JSON output uses a typed envelope:
 ```json
 {
   "command": "status",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "timestamp": "2026-03-03T00:00:00.000Z",
   "success": true,
   "data": { ... },
@@ -60,7 +70,7 @@ JSON output uses a typed envelope:
 
 ## MCP Integration
 
-After `openbrowser setup`, add to your `claude_desktop_config.json`:
+After `openbrowser-ai setup`, add to your `claude_desktop_config.json`:
 
 ```json
 {
@@ -76,7 +86,7 @@ After `openbrowser setup`, add to your `claude_desktop_config.json`:
 ## Programmatic Usage
 
 ```typescript
-import { OpenBrowser } from 'openbrowser';
+import { OpenBrowser } from 'openbrowser-ai';
 
 const ob = new OpenBrowser();
 const status = await ob.getStatus();
