@@ -1,10 +1,11 @@
 {
-  "name": "openbrowser",
-  "version": "0.1.0",
+  "name": "openbrowser-ai",
+  "version": "0.1.1",
   "description": "Managed authenticated browser for AI agents. Persistent Chrome sessions with CDP access, session health monitoring, and cross-platform service management.",
   "type": "module",
   "bin": {
-    "openbrowser": "./dist/index.js"
+    "openbrowser": "./dist/index.js",
+    "openbrowser-ai": "./dist/index.js"
   },
   "main": "./dist/lib/core.js",
   "types": "./dist/lib/core.d.ts",
