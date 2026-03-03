@@ -10,6 +10,7 @@ After=network.target
 
 [Service]
 Type=simple
+ExecStartPre=/bin/bash -c 'pgrep -f "Xvfb ${config.xvfbDisplay}" || (Xvfb ${config.xvfbDisplay} -screen 0 1280x800x24 & sleep 1)'
 ExecStart=${chromeBinary} \\
     --user-data-dir=${config.profileDir} \\
     --no-sandbox \\
@@ -22,7 +23,9 @@ ExecStart=${chromeBinary} \\
     --no-first-run \\
     --disable-sync \\
     --lang=en-US \\
-    --window-size=1280,800
+    --start-maximized \\
+    --window-size=1280,800 \\
+    --window-position=0,0
 Restart=on-failure
 RestartSec=5
 Environment=DISPLAY=${config.xvfbDisplay}
