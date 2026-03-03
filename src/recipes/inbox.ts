@@ -30,8 +30,6 @@ export const inboxRecipe: Recipe<InboxResult> = {
       const rows = document.querySelectorAll('tr.zA');
 
       for (const row of Array.from(rows).slice(0, 20)) {
-        const isUnread = row.classList.contains('zE');
-
         // Sender is in <span class="bA4"> or similar
         const fromEl = row.querySelector('.yW span[email], .yW .bA4, .yW span');
         const from = fromEl?.getAttribute('email') ?? fromEl?.textContent?.trim() ?? '';

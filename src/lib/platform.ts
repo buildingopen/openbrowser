@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { existsSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -48,7 +48,7 @@ export function findChromeBinary(): string | null {
 
   for (const name of CHROME_PATHS_LINUX) {
     try {
-      const path = execSync(`which ${name}`, { encoding: 'utf-8' }).trim();
+      const path = execFileSync('which', [name], { encoding: 'utf-8' }).trim();
       if (path) return path;
     } catch {
       // not found, try next

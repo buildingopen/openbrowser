@@ -321,6 +321,10 @@ export class OpenBrowser {
       retries--;
     }
 
+    if (await this.chromeService.isRunning()) {
+      throw new Error('Chrome service did not stop within 5 seconds. Try: openbrowser stop');
+    }
+
     // Clean stale locks
     cleanStaleLocks(this.config.profileDir);
 
@@ -358,7 +362,7 @@ export class OpenBrowser {
   private async loginLinux(): Promise<void> {
     // Start Xvfb
     console.log('Starting virtual display...');
-    this.chromeService.startXvfb();
+    await this.chromeService.startXvfb();
 
     // Launch Chrome on virtual display
     console.log('Starting Chrome on virtual display...');

@@ -35,14 +35,14 @@ const TOOLS: ToolDef[] = [
   { name: 'service_status', description: 'Get Chrome service and session status', inputSchema: { type: 'object', properties: {} } },
   { name: 'service_diagnose', description: 'Run full diagnostics', inputSchema: { type: 'object', properties: {} } },
   // Browser tools
-  { name: 'browser_navigate', description: 'Navigate to a URL', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } },
+  { name: 'browser_navigate', description: 'Navigate to a URL. Returns title and URL only; call browser_snapshot separately if you need page content.', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } },
   { name: 'browser_snapshot', description: 'Get accessibility snapshot of current page', inputSchema: { type: 'object', properties: {} } },
   { name: 'browser_screenshot', description: 'Take a screenshot of current page', inputSchema: { type: 'object', properties: { fullPage: { type: 'boolean' } } } },
   { name: 'browser_click', description: 'Click an element by CSS selector', inputSchema: { type: 'object', properties: { selector: { type: 'string' } }, required: ['selector'] } },
   { name: 'browser_type', description: 'Type text into an element', inputSchema: { type: 'object', properties: { selector: { type: 'string' }, text: { type: 'string' }, submit: { type: 'boolean' } }, required: ['selector', 'text'] } },
   { name: 'browser_select', description: 'Select an option in a dropdown', inputSchema: { type: 'object', properties: { selector: { type: 'string' }, value: { type: 'string' } }, required: ['selector', 'value'] } },
   { name: 'browser_hover', description: 'Hover over an element', inputSchema: { type: 'object', properties: { selector: { type: 'string' } }, required: ['selector'] } },
-  { name: 'browser_evaluate', description: 'Evaluate JavaScript on the page', inputSchema: { type: 'object', properties: { expression: { type: 'string' } }, required: ['expression'] } },
+  { name: 'browser_evaluate', description: 'Evaluate JavaScript on the page. WARNING: executes arbitrary code in the authenticated browser context. Use with caution.', inputSchema: { type: 'object', properties: { expression: { type: 'string' } }, required: ['expression'] } },
   { name: 'browser_wait', description: 'Wait for a selector or timeout', inputSchema: { type: 'object', properties: { selector: { type: 'string' }, timeout: { type: 'number' } } } },
   { name: 'browser_back', description: 'Go back in browser history', inputSchema: { type: 'object', properties: {} } },
   { name: 'browser_forward', description: 'Go forward in browser history', inputSchema: { type: 'object', properties: {} } },
@@ -119,11 +119,13 @@ export async function startMcpServer(options?: { profileDir?: string }): Promise
         return json(session);
       }
       case 'session_cookies': {
+        const domain = (args.domain as string ?? '').trim();
+        if (!domain) return text('Error: domain parameter is required and must be non-empty');
         const b = await ensureBrowser();
         const context = b.contexts()[0];
         if (!context) return json([]);
         const all = await context.cookies();
-        const filtered = all.filter((c) => c.domain.includes(args.domain as string));
+        const filtered = all.filter((c) => c.domain.includes(domain));
         return json(filtered);
       }
       case 'service_status': {
@@ -140,8 +142,7 @@ export async function startMcpServer(options?: { profileDir?: string }): Promise
         const page = await ensurePage();
         await page.goto(args.url as string, { waitUntil: 'domcontentloaded', timeout: 30000 });
         const title = await page.title();
-        const snapshot = await page.accessibility.snapshot();
-        return json({ title, url: page.url(), snapshot });
+        return json({ title, url: page.url() });
       }
       case 'browser_snapshot': {
         const page = await ensurePage();
@@ -243,7 +244,14 @@ export async function startMcpServer(options?: { profileDir?: string }): Promise
         return json(recipes);
       }
       case 'recipe_run': {
-        const result = await ob.runRecipe(args.name as string, args.args as Record<string, string> | undefined);
+        let recipeArgs: Record<string, string> | undefined;
+        if (args.args && typeof args.args === 'object') {
+          recipeArgs = {};
+          for (const [k, v] of Object.entries(args.args as Record<string, unknown>)) {
+            recipeArgs[k] = String(v);
+          }
+        }
+        const result = await ob.runRecipe(args.name as string, recipeArgs);
         return json(result);
       }
       case 'recipe_run_prs': {

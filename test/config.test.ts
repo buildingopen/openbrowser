@@ -10,7 +10,7 @@ describe('config', () => {
     const config = loadConfig('/nonexistent/path/config.json');
     assert.equal(config.cdpPort, 9222);
     assert.equal(config.timezone, 'Europe/Berlin');
-    assert.equal(config.vncPassword, 'temp1234');
+    assert.equal(config.vncPassword.length, 12); // random password, 12 chars
     assert.equal(config.vncPort, 5900);
     assert.equal(config.xvfbDisplay, ':98');
     assert.ok(config.profileDir.includes('chrome-profile'));

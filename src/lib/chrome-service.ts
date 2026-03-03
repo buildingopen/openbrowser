@@ -102,13 +102,15 @@ export class ChromeService {
 
   async getPid(): Promise<number | null> {
     try {
+      // Find all PIDs listening on the CDP port, take the lowest (parent process)
       const output = execSync(
         `lsof -ti :${this.config.cdpPort} 2>/dev/null || true`,
         { encoding: 'utf-8' },
       ).trim();
       if (!output) return null;
-      const pid = parseInt(output.split('\n')[0], 10);
-      return isNaN(pid) ? null : pid;
+      const pids = output.split('\n').map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n));
+      if (pids.length === 0) return null;
+      return Math.min(...pids);
     } catch {
       return null;
     }
@@ -292,7 +294,7 @@ export class ChromeService {
     return spawn(chromeBinary, args, { stdio: 'ignore', detached: false });
   }
 
-  startXvfb(): void {
+  async startXvfb(): Promise<void> {
     const display = this.config.xvfbDisplay;
     const lockFile = `/tmp/.X${display.replace(':', '')}-lock`;
 
@@ -309,7 +311,7 @@ export class ChromeService {
     // Wait for Xvfb to create lock file (up to 5 seconds)
     for (let i = 0; i < 50; i++) {
       if (existsSync(lockFile)) return;
-      execSync('sleep 0.1');
+      await new Promise((r) => setTimeout(r, 100));
     }
   }
 

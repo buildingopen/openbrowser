@@ -1,16 +1,27 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import type { Config } from './types.js';
 import { getConfigDir, getProfileDir } from './platform.js';
 
 const CONFIG_FILENAME = 'config.json';
 
+function randomPassword(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const bytes = randomBytes(12);
+  let result = '';
+  for (const b of bytes) {
+    result += chars[b % chars.length];
+  }
+  return result;
+}
+
 function defaultConfig(): Config {
   return {
     cdpPort: 9222,
     profileDir: getProfileDir(),
     timezone: 'Europe/Berlin',
-    vncPassword: 'temp1234',
+    vncPassword: randomPassword(),
     vncPort: 5900,
     xvfbDisplay: ':98',
   };
