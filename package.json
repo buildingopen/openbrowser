@@ -1,0 +1,61 @@
+{
+  "name": "openbrowser",
+  "version": "0.1.0",
+  "description": "Managed authenticated browser for AI agents. Persistent Chrome sessions with CDP access, session health monitoring, and cross-platform service management.",
+  "type": "module",
+  "bin": {
+    "openbrowser": "./dist/index.js"
+  },
+  "main": "./dist/lib/core.js",
+  "types": "./dist/lib/core.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/lib/core.js",
+      "types": "./dist/lib/core.d.ts"
+    },
+    "./cli": {
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "browser",
+    "chrome",
+    "cdp",
+    "automation",
+    "ai-agent",
+    "session-management",
+    "playwright",
+    "mcp"
+  ],
+  "author": "Federico De Ponte",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/federicodeponte/openbrowser.git"
+  },
+  "dependencies": {
+    "chalk": "5.4.1",
+    "commander": "13.1.0",
+    "playwright-core": "1.50.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.13.5",
+    "typescript": "5.7.3"
+  }
+}
