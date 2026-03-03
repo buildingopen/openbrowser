@@ -294,15 +294,22 @@ export class ChromeService {
 
   startXvfb(): void {
     const display = this.config.xvfbDisplay;
-    try {
-      execSync(`pgrep -f "Xvfb ${display}"`, { encoding: 'utf-8' });
-      // already running
-    } catch {
-      spawn('Xvfb', [display, '-screen', '0', '1280x800x24', '-ac', '-nolisten', 'tcp'], {
-        stdio: 'ignore',
-        detached: true,
-      }).unref();
-      execSync('sleep 1');
+    const lockFile = `/tmp/.X${display.replace(':', '')}-lock`;
+
+    // Check if already running
+    if (existsSync(lockFile)) {
+      return;
+    }
+
+    spawn('Xvfb', [display, '-screen', '0', '1280x800x24', '-ac'], {
+      stdio: 'ignore',
+      detached: true,
+    }).unref();
+
+    // Wait for Xvfb to create lock file (up to 5 seconds)
+    for (let i = 0; i < 50; i++) {
+      if (existsSync(lockFile)) return;
+      execSync('sleep 0.1');
     }
   }
 
