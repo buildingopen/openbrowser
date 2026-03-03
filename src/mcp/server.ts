@@ -59,6 +59,8 @@ const TOOLS: ToolDef[] = [
   { name: 'recipe_run_calendar', description: "Check today's Google Calendar events", inputSchema: { type: 'object', properties: {} } },
   { name: 'recipe_run_profile', description: 'Get LinkedIn profile summary', inputSchema: { type: 'object', properties: {} } },
   { name: 'recipe_run_messages', description: 'Check LinkedIn unread messages', inputSchema: { type: 'object', properties: {} } },
+  { name: 'recipe_run_linkedin', description: 'Check LinkedIn notifications', inputSchema: { type: 'object', properties: {} } },
+  { name: 'recipe_run_search', description: 'Search Google and return results', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
 ];
 
 export const TOOL_COUNT = TOOLS.length;
@@ -280,6 +282,14 @@ export async function startMcpServer(options?: { profileDir?: string }): Promise
       }
       case 'recipe_run_messages': {
         const result = await ob.runRecipe('messages');
+        return json(result);
+      }
+      case 'recipe_run_linkedin': {
+        const result = await ob.runRecipe('linkedin');
+        return json(result);
+      }
+      case 'recipe_run_search': {
+        const result = await ob.runRecipe('search', { query: args.query as string });
         return json(result);
       }
       default:

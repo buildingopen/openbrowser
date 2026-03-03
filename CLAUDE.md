@@ -20,7 +20,7 @@ Managed authenticated browser for AI agents. Persistent Chrome sessions with CDP
 - `src/lib/output.ts` - JSON/text output with `CommandOutput<T>` envelope
 - `src/lib/rate-limiter.ts` - Per-domain rate limiting for recipes
 - `src/lib/types.ts` - All interfaces and auth cookie specs
-- `src/mcp/server.ts` - Built-in MCP server (28 tools, stdio transport)
+- `src/mcp/server.ts` - Built-in MCP server (30 tools, stdio transport)
 - `src/recipes/` - Recipe system (base interface, registry, built-in recipes)
   - `base.ts` - Recipe interface, result types, `newPage()` helper, `withRetry()`, `RecipeError`
   - `index.ts` - Recipe registry (getRecipe, listRecipes)

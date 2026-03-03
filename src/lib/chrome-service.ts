@@ -287,7 +287,7 @@ export class ChromeService {
         DISPLAY: this.config.xvfbDisplay,
         TZ: this.config.timezone,
       };
-      return spawn(chromeBinary, args, { env, stdio: 'ignore', detached: true });
+      return spawn(chromeBinary, args, { env, stdio: 'ignore', detached: false });
     }
 
     // macOS: launch directly, user sees the window
@@ -313,6 +313,7 @@ export class ChromeService {
       if (existsSync(lockFile)) return;
       await new Promise((r) => setTimeout(r, 100));
     }
+    throw new Error(`Xvfb failed to start on ${display}. Is Xvfb installed? Try: apt install xvfb`);
   }
 
   startVnc(): ChildProcess {

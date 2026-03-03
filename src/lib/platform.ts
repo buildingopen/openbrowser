@@ -1,4 +1,4 @@
-import { execSync, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -63,12 +63,6 @@ export function getConfigDir(): string {
 
 export function getProfileDir(): string {
   return join(getConfigDir(), 'chrome-profile');
-}
-
-export function isHeadless(): boolean {
-  if (detectOS() === 'darwin') return false;
-  // Linux: check if a display is available
-  return !process.env['DISPLAY'] || process.env['DISPLAY'] === ':98';
 }
 
 export function cleanStaleLocks(profileDir: string): void {
