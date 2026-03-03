@@ -107,6 +107,30 @@ describe('domain management', () => {
     }
   });
 
+  it('cannot add built-in domain via CLI', () => {
+    try {
+      execSync(`node ${CLI} domain add google.com SID HSID --format json`, { encoding: 'utf-8' });
+      assert.fail('Should have failed');
+    } catch (err: unknown) {
+      const e = err as { stdout?: Buffer };
+      const out = e.stdout?.toString() ?? '';
+      assert.ok(out, 'expected stdout output on error');
+      const parsed = JSON.parse(out);
+      assert.equal(parsed.success, false);
+      assert.ok(parsed.error?.includes('built-in'));
+    }
+  });
+
+  it('cannot add built-in domain via SDK', () => {
+    const { dir, configPath } = makeTmp();
+    writeFileSync(configPath, JSON.stringify({ cdpPort: 9222, profileDir: dir }));
+    const ob = new OpenBrowser({ configPath, profileDir: dir });
+    assert.throws(
+      () => ob.addDomain('google.com', ['SID']),
+      /built-in/,
+    );
+  });
+
   it('domain add updates existing custom domain', () => {
     const { dir, configPath } = makeTmp();
     writeFileSync(configPath, JSON.stringify({

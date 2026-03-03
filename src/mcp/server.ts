@@ -48,6 +48,7 @@ const TOOLS: ToolDef[] = [
   { name: 'browser_forward', description: 'Go forward in browser history', inputSchema: { type: 'object', properties: {} } },
   { name: 'browser_tabs', description: 'List all open tabs', inputSchema: { type: 'object', properties: {} } },
   { name: 'browser_new_tab', description: 'Open a new tab', inputSchema: { type: 'object', properties: { url: { type: 'string' } } } },
+  { name: 'browser_switch_tab', description: 'Switch to a tab by index', inputSchema: { type: 'object', properties: { index: { type: 'number' } }, required: ['index'] } },
   // Recipe tools
   { name: 'recipe_list', description: 'List all available recipes', inputSchema: { type: 'object', properties: {} } },
   { name: 'recipe_run', description: 'Run a recipe by name', inputSchema: { type: 'object', properties: { name: { type: 'string' }, args: { type: 'object' } }, required: ['name'] } },
@@ -220,6 +221,20 @@ export async function startMcpServer(options?: { profileDir?: string }): Promise
         }
         const title = await activePage.title();
         return json({ url: activePage.url(), title });
+      }
+
+      case 'browser_switch_tab': {
+        const b = await ensureBrowser();
+        const context = b.contexts()[0];
+        if (!context) throw new Error('No browser context available');
+        const allPages = context.pages();
+        const idx = args.index as number;
+        if (idx < 0 || idx >= allPages.length) {
+          throw new Error(`Tab index ${idx} out of range (0-${allPages.length - 1})`);
+        }
+        activePage = allPages[idx];
+        await activePage.bringToFront();
+        return json({ index: idx, url: activePage.url(), title: await activePage.title() });
       }
 
       // Recipe tools

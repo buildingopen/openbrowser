@@ -36,8 +36,8 @@ export const issuesRecipe: Recipe<IssuesResult> = {
         const match = url.match(/github\.com\/([^/]+\/[^/]+)\/issues/);
         const repo = match ? match[1] : '';
 
-        const stateEl = row.querySelector('.State, [class*="state"]');
-        const state = stateEl?.textContent?.trim() ?? 'open';
+        const stateEl = row.querySelector('.State');
+        const state = stateEl?.textContent?.trim().toLowerCase() ?? 'open';
 
         const labelEls = row.querySelectorAll('.IssueLabel, [data-name]');
         const labels = Array.from(labelEls).map((el) => el.textContent?.trim() ?? '').filter(Boolean);

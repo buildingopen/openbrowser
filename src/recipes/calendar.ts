@@ -14,7 +14,7 @@ export const calendarRecipe: Recipe<CalendarResult> = {
     // Calendar is heavy JS, give it time
     await page.waitForTimeout(5000);
 
-    await page.waitForSelector('[data-eventid], [data-eventchip], [role="listitem"]', {
+    await page.waitForSelector('[data-eventid], [data-eventchip]', {
       timeout: 20000,
     }).catch(() => {});
 
@@ -27,28 +27,71 @@ export const calendarRecipe: Recipe<CalendarResult> = {
         allDay: boolean;
       }> = [];
 
-      // Google Calendar event chips
-      const chips = document.querySelectorAll('[data-eventchip], [data-eventid], [role="button"][data-eventid]');
+      // Material Icon names that leak into textContent
+      const iconNames = new Set([
+        'date_range', 'more_vert', 'link', 'clear', 'event', 'schedule',
+        'location_on', 'videocam', 'edit', 'delete', 'close', 'done',
+      ]);
+
+      function cleanText(raw: string): string {
+        // Remove Material Icon ligature names and extra whitespace
+        return raw
+          .split(/\s+/)
+          .filter((w) => !iconNames.has(w))
+          .join(' ')
+          .replace(/Copy link|Options for .+$|Unsubscribe from .+$/g, '')
+          .trim();
+      }
+
+      // Get event chips from the main calendar grid
+      const chips = document.querySelectorAll('[data-eventchip]');
 
       for (const chip of Array.from(chips).slice(0, 20)) {
-        const titleEl = chip.querySelector('[data-eventchip] span, [aria-hidden="true"]') ?? chip;
-        const rawText = titleEl?.textContent?.trim() ?? '';
+        // Use aria-label first (cleanest source), fallback to textContent
+        const ariaLabel = chip.getAttribute('aria-label') ?? '';
+        const rawText = ariaLabel || (chip.textContent?.trim() ?? '');
         if (!rawText) continue;
 
-        // Parse "10:00am - 11:00am Event Title" or just "Event Title" (all-day)
-        const timeMatch = rawText.match(/^(\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)?)\s*[-–]\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)?)\s+(.+)/);
+        const cleaned = cleanText(rawText);
+        if (!cleaned || cleaned.length < 3) continue;
 
-        if (timeMatch) {
+        // Try to parse time from aria-label format: "Event Title, March 3, 3pm to 4pm"
+        // or from text format: "3pm - 4pm Event Title"
+        const ariaTimeMatch = cleaned.match(/,\s*\w+\s+\d+,?\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)?)\s+to\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)?)/);
+        const textTimeMatch = cleaned.match(/^(\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)?)\s*[-–]\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)?)\s+(.+)/);
+        // Also handle "Event Title, 3pm" or "Event Title3pm" patterns
+        const suffixTimeMatch = cleaned.match(/^(.+?),?\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM))\s*(?:[-–]\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)))?/);
+
+        if (ariaTimeMatch) {
+          // Extract title: everything before the date portion
+          const titleMatch = cleaned.match(/^(.+?),\s*\w+\s+\d+/);
+          const title = titleMatch ? titleMatch[1].trim() : cleaned.split(',')[0].trim();
           results.push({
-            title: timeMatch[3],
-            startTime: timeMatch[1],
-            endTime: timeMatch[2],
+            title,
+            startTime: ariaTimeMatch[1],
+            endTime: ariaTimeMatch[2],
+            location: '',
+            allDay: false,
+          });
+        } else if (textTimeMatch) {
+          results.push({
+            title: textTimeMatch[3].trim(),
+            startTime: textTimeMatch[1],
+            endTime: textTimeMatch[2],
+            location: '',
+            allDay: false,
+          });
+        } else if (suffixTimeMatch && suffixTimeMatch[2]) {
+          results.push({
+            title: suffixTimeMatch[1].trim(),
+            startTime: suffixTimeMatch[2],
+            endTime: suffixTimeMatch[3] ?? '',
             location: '',
             allDay: false,
           });
         } else {
           results.push({
-            title: rawText,
+            title: cleaned,
             startTime: '',
             endTime: '',
             location: '',
@@ -57,22 +100,14 @@ export const calendarRecipe: Recipe<CalendarResult> = {
         }
       }
 
-      // Also try the schedule/agenda view items
-      const listItems = document.querySelectorAll('[role="listitem"]');
-      for (const item of listItems) {
-        const text = item.textContent?.trim() ?? '';
-        if (text && !results.some((r) => text.includes(r.title))) {
-          results.push({
-            title: text.replace(/\s+/g, ' ').slice(0, 200),
-            startTime: '',
-            endTime: '',
-            location: '',
-            allDay: false,
-          });
-        }
-      }
-
-      return results;
+      // Deduplicate by title
+      const seen = new Set<string>();
+      return results.filter((e) => {
+        const key = e.title.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     });
 
     await page.close();

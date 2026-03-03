@@ -104,7 +104,7 @@ Recipes check session health before running. If a required session is expired, y
 
 ### Built-in MCP Server
 
-OpenBrowser includes a built-in MCP server with 27 tools (session management, full browser control, recipes):
+OpenBrowser includes a built-in MCP server with 28 tools (session management, full browser control, recipes):
 
 ```bash
 openbrowser mcp    # Start stdio MCP server
@@ -127,7 +127,7 @@ MCP tools include:
 
 **Session tools:** `session_list`, `session_check`, `session_cookies`, `service_status`, `service_diagnose`
 
-**Browser tools:** `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_select`, `browser_hover`, `browser_evaluate`, `browser_wait`, `browser_back`, `browser_forward`, `browser_tabs`, `browser_new_tab`
+**Browser tools:** `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_select`, `browser_hover`, `browser_evaluate`, `browser_wait`, `browser_back`, `browser_forward`, `browser_tabs`, `browser_new_tab`, `browser_switch_tab`
 
 **Recipe tools:** `recipe_list`, `recipe_run`, `recipe_run_prs`, `recipe_run_inbox`, `recipe_run_issues`, `recipe_run_notifications`, `recipe_run_calendar`, `recipe_run_profile`, `recipe_run_messages`
 

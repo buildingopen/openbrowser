@@ -27,17 +27,17 @@ export const notificationsRecipe: Recipe<NotificationsResult> = {
       const items = document.querySelectorAll('.notifications-list-item, [data-notification-id]');
 
       for (const item of Array.from(items).slice(0, 30)) {
-        const linkEl = item.querySelector('a.notification-list-item-link, a[class*="notification"]');
+        const linkEl = item.querySelector('a.notification-list-item-link, a[data-hovercard-url]');
         const title = linkEl?.textContent?.trim().replace(/\s+/g, ' ') ?? '';
         const url = (linkEl as HTMLAnchorElement)?.href ?? '';
 
-        const repoEl = item.querySelector('.notifications-repo-link, [class*="repo-name"]');
+        const repoEl = item.querySelector('.notifications-repo-link, [data-repository-nwo]');
         const repo = repoEl?.textContent?.trim() ?? '';
 
-        const typeEl = item.querySelector('.type-icon, [class*="type"]');
+        const typeEl = item.querySelector('.type-icon');
         const type = typeEl?.getAttribute('aria-label') ?? typeEl?.textContent?.trim() ?? '';
 
-        const reasonEl = item.querySelector('.reason, [class*="reason"]');
+        const reasonEl = item.querySelector('.reason');
         const reason = reasonEl?.textContent?.trim() ?? '';
 
         const timeEl = item.querySelector('relative-time, time');

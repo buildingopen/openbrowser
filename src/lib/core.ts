@@ -8,6 +8,7 @@ import type {
   SessionInfo,
   AuthCookieSpec,
 } from './types.js';
+import { AUTH_COOKIE_SPECS } from './types.js';
 import { loadConfig, saveConfig } from './config.js';
 import { SessionManager } from './session.js';
 import { ChromeService } from './chrome-service.js';
@@ -101,6 +102,9 @@ export class OpenBrowser {
 
   // Domain management
   addDomain(domain: string, cookies: string[], label?: string): void {
+    if (AUTH_COOKIE_SPECS.some((s) => s.domain === domain)) {
+      throw new Error(`Cannot override built-in domain: ${domain}`);
+    }
     const spec: AuthCookieSpec = {
       domain,
       requiredCookies: cookies,

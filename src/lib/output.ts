@@ -261,7 +261,7 @@ function printRecipeResultText(output: CommandOutput<unknown>): void {
   } else if (recipeName === 'issues' && Array.isArray(data.issues)) {
     for (const issue of data.issues as Array<Record<string, unknown>>) {
       const labels = Array.isArray(issue.labels) ? (issue.labels as string[]).join(', ') : '';
-      console.log(`  ${chalk.green(issue.repo as string ?? '')} ${issue.title as string}`);
+      console.log(`  ${chalk.green((issue.repo as string) ?? '')} ${(issue.title as string) ?? ''}`);
       if (labels) console.log(`    ${chalk.dim(labels)}`);
     }
   } else if (recipeName === 'notifications' && Array.isArray(data.notifications)) {
@@ -272,7 +272,7 @@ function printRecipeResultText(output: CommandOutput<unknown>): void {
   } else if (recipeName === 'calendar' && Array.isArray(data.events)) {
     for (const event of data.events as Array<Record<string, unknown>>) {
       const time = event.allDay ? chalk.dim('all day') : chalk.dim(`${event.startTime} - ${event.endTime}`);
-      console.log(`  ${time}  ${event.title as string}`);
+      console.log(`  ${time}  ${(event.title as string) ?? ''}`);
       if (event.location) console.log(`    ${chalk.dim(event.location as string)}`);
     }
   } else if (recipeName === 'profile') {
