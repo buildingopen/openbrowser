@@ -113,8 +113,8 @@ export class OpenBrowser {
       existsSync(join(this.config.profileDir, f)),
     );
 
-    const cdpRunning = (await this.chromeService.getCdpInfo()).running;
-    if (staleLocks.length > 0 && !cdpRunning) {
+    const cdp = await this.chromeService.getCdpInfo();
+    if (staleLocks.length > 0 && !cdp.running) {
       checks.push({
         name: 'stale-locks',
         status: 'warn',
@@ -130,12 +130,11 @@ export class OpenBrowser {
     }
 
     // 4. CDP connection
-    const cdpInfo = await this.chromeService.getCdpInfo();
-    if (cdpInfo.running) {
+    if (cdp.running) {
       checks.push({
         name: 'cdp-connection',
         status: 'pass',
-        message: `Connected to ${cdpInfo.version ?? 'Chrome'} on port ${this.config.cdpPort}`,
+        message: `Connected to ${cdp.version ?? 'Chrome'} on port ${this.config.cdpPort}`,
       });
     } else {
       checks.push({
@@ -147,7 +146,7 @@ export class OpenBrowser {
     }
 
     // 5. Session health
-    if (cdpRunning) {
+    if (cdp.running) {
       try {
         const sessions = await this.sessionManager.getSessions();
         for (const session of sessions) {
@@ -298,7 +297,22 @@ export class OpenBrowser {
     saveConfig(this.config);
 
     // Install service
-    const { path: servicePath, instructions } = this.chromeService.install();
+    let servicePath: string;
+    let instructions: string;
+    try {
+      const result = this.chromeService.install();
+      servicePath = result.path;
+      instructions = result.instructions;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('EACCES') || msg.includes('permission denied')) {
+        console.error(`Permission denied writing service file.`);
+        console.error('On Linux, run with sudo: sudo npx openbrowser setup');
+        console.error('Or the service will be installed in user mode if available.');
+        process.exit(1);
+      }
+      throw err;
+    }
 
     console.log('Setup complete.');
     console.log();
