@@ -22,20 +22,23 @@ const program = new Command();
 program
   .name('openbrowser')
   .description('Managed authenticated browser for AI agents')
-  .version(pkg.version);
+  .version(pkg.version)
+  .option('--profile <path>', 'Chrome profile directory to use');
 
 program
   .command('setup')
   .description('Install Chrome service and configure OpenBrowser')
-  .action(async () => {
-    await setupCommand();
+  .option('--profile <path>', 'Use an existing Chrome profile directory')
+  .action(async (options: { profile?: string }) => {
+    const globalProfile = program.opts().profile;
+    await setupCommand({ profile: options.profile ?? globalProfile });
   });
 
 program
   .command('login')
   .description('Open Chrome GUI for manual login to websites')
   .action(async () => {
-    await loginCommand();
+    await loginCommand({ profile: program.opts().profile });
   });
 
 program
@@ -43,7 +46,7 @@ program
   .description('Show Chrome status and session health')
   .option('--format <format>', 'Output format: json or text')
   .action(async (options: { format?: string }) => {
-    await statusCommand(options);
+    await statusCommand({ ...options, profile: program.opts().profile });
   });
 
 program
@@ -51,7 +54,7 @@ program
   .description('Run diagnostics on the OpenBrowser setup')
   .option('--format <format>', 'Output format: json or text')
   .action(async (options: { format?: string }) => {
-    await doctorCommand(options);
+    await doctorCommand({ ...options, profile: program.opts().profile });
   });
 
 await program.parseAsync();

@@ -24,8 +24,11 @@ export class OpenBrowser {
   private sessionManager: SessionManager;
   private chromeService: ChromeService;
 
-  constructor(configPath?: string) {
-    this.config = loadConfig(configPath);
+  constructor(options?: { configPath?: string; profileDir?: string }) {
+    const overrides = options?.profileDir
+      ? { profileDir: options.profileDir }
+      : undefined;
+    this.config = loadConfig(options?.configPath, overrides);
     this.sessionManager = new SessionManager(this.config.cdpPort);
     this.chromeService = new ChromeService(this.config);
   }

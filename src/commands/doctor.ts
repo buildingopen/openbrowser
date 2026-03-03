@@ -1,8 +1,8 @@
 import { OpenBrowser } from '../lib/core.js';
 import { createOutput, resolveFormat, printOutput } from '../lib/output.js';
 
-export async function doctorCommand(options: { format?: string }): Promise<void> {
-  const ob = new OpenBrowser();
+export async function doctorCommand(options: { format?: string; profile?: string }): Promise<void> {
+  const ob = new OpenBrowser({ profileDir: options.profile });
   const data = await ob.diagnose();
 
   const fails = data.checks.filter((c) => c.status === 'fail').length;

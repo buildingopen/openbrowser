@@ -20,19 +20,27 @@ export function getConfigPath(): string {
   return join(getConfigDir(), CONFIG_FILENAME);
 }
 
-export function loadConfig(configPath?: string): Config {
+export function loadConfig(configPath?: string, overrides?: Partial<Config>): Config {
   const path = configPath ?? getConfigPath();
   const defaults = defaultConfig();
 
-  if (!existsSync(path)) return defaults;
-
-  try {
-    const raw = readFileSync(path, 'utf-8');
-    const parsed = JSON.parse(raw) as Partial<Config>;
-    return { ...defaults, ...parsed };
-  } catch {
-    return defaults;
+  let config: Config;
+  if (!existsSync(path)) {
+    config = defaults;
+  } else {
+    try {
+      const raw = readFileSync(path, 'utf-8');
+      const parsed = JSON.parse(raw) as Partial<Config>;
+      config = { ...defaults, ...parsed };
+    } catch {
+      config = defaults;
+    }
   }
+
+  if (overrides) {
+    return { ...config, ...overrides };
+  }
+  return config;
 }
 
 export function saveConfig(config: Config, configPath?: string): void {
