@@ -62,14 +62,26 @@ export const searchRecipe: Recipe<SearchResult> = {
         const container = h3.closest('[data-hveid], [jscontroller]') ?? h3.parentElement?.parentElement?.parentElement;
         let snippet = '';
         if (container) {
-          // Look for spans/divs with substantial text that aren't the title
-          const textNodes = container.querySelectorAll('span, div[data-sncf], [style*="line-clamp"]');
+          // Look for spans with substantial text that aren't the title or URL breadcrumb
+          const textNodes = container.querySelectorAll('span[style*="line-clamp"], div[data-sncf] span, em');
           for (const node of textNodes) {
             const text = node.textContent?.trim() ?? '';
-            if (text.length > 40 && text !== title && !text.includes(href)) {
+            if (text.length > 40 && text !== title && !text.startsWith('http')) {
               snippet = text;
               break;
             }
+          }
+          // Fallback: grab longest text block in container
+          if (!snippet) {
+            const allSpans = container.querySelectorAll('span');
+            let best = '';
+            for (const span of allSpans) {
+              const text = span.textContent?.trim() ?? '';
+              if (text.length > best.length && text !== title && !text.startsWith('http') && !text.includes('://')) {
+                best = text;
+              }
+            }
+            if (best.length > 30) snippet = best;
           }
         }
 
