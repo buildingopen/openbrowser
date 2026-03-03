@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { Config } from './types.js';
 import { detectOS, findChromeBinary, cleanStaleLocks } from './platform.js';
 
-const SYSTEMD_TEMPLATE = (config: Config, chromeBinary: string) => `[Unit]
+const SYSTEMD_TEMPLATE = (config: Config, chromeBinary: string, userMode: boolean) => `[Unit]
 Description=OpenBrowser - Authenticated Chrome with CDP
 After=network.target
 
@@ -32,7 +32,7 @@ Environment=DISPLAY=${config.xvfbDisplay}
 Environment=TZ=${config.timezone}
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=${userMode ? 'default.target' : 'multi-user.target'}
 `;
 
 const LAUNCHD_TEMPLATE = (config: Config, chromeBinary: string) => `<?xml version="1.0" encoding="UTF-8"?>
@@ -82,27 +82,22 @@ export class ChromeService {
     this.os = detectOS();
   }
 
-  async isRunning(): Promise<boolean> {
+  async getCdpInfo(): Promise<{ running: boolean; version?: string }> {
     try {
       const res = await fetch(
         `http://localhost:${this.config.cdpPort}/json/version`,
       );
-      return res.ok;
+      if (!res.ok) return { running: false };
+      const data = (await res.json()) as { Browser?: string };
+      return { running: true, version: data.Browser ?? undefined };
     } catch {
-      return false;
+      return { running: false };
     }
   }
 
-  async getVersion(): Promise<string | null> {
-    try {
-      const res = await fetch(
-        `http://localhost:${this.config.cdpPort}/json/version`,
-      );
-      const data = (await res.json()) as { Browser?: string };
-      return data.Browser ?? null;
-    } catch {
-      return null;
-    }
+  async isRunning(): Promise<boolean> {
+    const info = await this.getCdpInfo();
+    return info.running;
   }
 
   async getPid(): Promise<number | null> {
@@ -137,21 +132,51 @@ export class ChromeService {
     return this.installLaunchd(chromeBinary);
   }
 
+  private isRoot(): boolean {
+    return process.getuid?.() === 0;
+  }
+
+  private getSystemdDir(): string {
+    if (this.isRoot()) {
+      return '/etc/systemd/system';
+    }
+    const home = process.env['HOME'] ?? '~';
+    const dir = join(home, '.config', 'systemd', 'user');
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    return dir;
+  }
+
   private installSystemd(chromeBinary: string): {
     path: string;
     instructions: string;
   } {
-    const servicePath = '/etc/systemd/system/openbrowser.service';
-    const content = SYSTEMD_TEMPLATE(this.config, chromeBinary);
+    const root = this.isRoot();
+    const serviceDir = this.getSystemdDir();
+    const servicePath = join(serviceDir, 'openbrowser.service');
+    const content = SYSTEMD_TEMPLATE(this.config, chromeBinary, !root);
     writeFileSync(servicePath, content, 'utf-8');
+
+    if (root) {
+      return {
+        path: servicePath,
+        instructions: [
+          'Service installed. To start:',
+          '  systemctl daemon-reload',
+          '  systemctl enable openbrowser',
+          '  systemctl start openbrowser',
+        ].join('\n'),
+      };
+    }
 
     return {
       path: servicePath,
       instructions: [
-        'Service installed. To start:',
-        '  sudo systemctl daemon-reload',
-        '  sudo systemctl enable openbrowser',
-        '  sudo systemctl start openbrowser',
+        'Service installed (user mode). To start:',
+        '  systemctl --user daemon-reload',
+        '  systemctl --user enable openbrowser',
+        '  systemctl --user start openbrowser',
       ].join('\n'),
     };
   }
@@ -184,9 +209,14 @@ export class ChromeService {
     };
   }
 
+  private systemctl(action: string): void {
+    const flag = this.isRoot() ? '' : ' --user';
+    execSync(`systemctl${flag} ${action} openbrowser`, { stdio: 'inherit' });
+  }
+
   start(): void {
     if (this.os === 'linux') {
-      execSync('sudo systemctl start openbrowser', { stdio: 'inherit' });
+      this.systemctl('start');
     } else {
       const plistPath = join(
         process.env['HOME'] ?? '~',
@@ -201,7 +231,7 @@ export class ChromeService {
   stop(): void {
     if (this.os === 'linux') {
       try {
-        execSync('sudo systemctl stop openbrowser', { stdio: 'inherit' });
+        this.systemctl('stop');
       } catch {
         // service might not be running
       }

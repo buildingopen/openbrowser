@@ -37,14 +37,11 @@ export class OpenBrowser {
   }
 
   async getStatus(): Promise<StatusData> {
-    const running = await this.chromeService.isRunning();
-    const pid = running ? await this.chromeService.getPid() : undefined;
-    const version = running
-      ? (await this.chromeService.getVersion()) ?? undefined
-      : undefined;
+    const cdp = await this.chromeService.getCdpInfo();
+    const pid = cdp.running ? await this.chromeService.getPid() : undefined;
 
     let sessions: SessionInfo[] = [];
-    if (running) {
+    if (cdp.running) {
       try {
         sessions = await this.sessionManager.getSessions();
       } catch {
@@ -54,10 +51,10 @@ export class OpenBrowser {
 
     return {
       chrome: {
-        running,
+        running: cdp.running,
         pid: pid ?? undefined,
-        version,
-        endpoint: running
+        version: cdp.version,
+        endpoint: cdp.running
           ? `http://localhost:${this.config.cdpPort}`
           : undefined,
       },
@@ -116,7 +113,7 @@ export class OpenBrowser {
       existsSync(join(this.config.profileDir, f)),
     );
 
-    const cdpRunning = await this.chromeService.isRunning();
+    const cdpRunning = (await this.chromeService.getCdpInfo()).running;
     if (staleLocks.length > 0 && !cdpRunning) {
       checks.push({
         name: 'stale-locks',
@@ -133,12 +130,12 @@ export class OpenBrowser {
     }
 
     // 4. CDP connection
-    if (cdpRunning) {
-      const version = await this.chromeService.getVersion();
+    const cdpInfo = await this.chromeService.getCdpInfo();
+    if (cdpInfo.running) {
       checks.push({
         name: 'cdp-connection',
         status: 'pass',
-        message: `Connected to ${version ?? 'Chrome'} on port ${this.config.cdpPort}`,
+        message: `Connected to ${cdpInfo.version ?? 'Chrome'} on port ${this.config.cdpPort}`,
       });
     } else {
       checks.push({
