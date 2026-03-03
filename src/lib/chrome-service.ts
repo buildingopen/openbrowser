@@ -312,7 +312,6 @@ export class ChromeService {
       [
         '-display',
         this.config.xvfbDisplay,
-        '-noxauth',
         '-passwd',
         this.config.vncPassword,
         '-rfbport',
