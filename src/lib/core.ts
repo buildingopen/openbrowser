@@ -10,6 +10,9 @@ import type {
 import { loadConfig, saveConfig } from './config.js';
 import { SessionManager } from './session.js';
 import { ChromeService } from './chrome-service.js';
+import { RateLimiter } from './rate-limiter.js';
+import { getRecipe, listRecipes } from '../recipes/index.js';
+import type { RecipeListItem } from '../recipes/index.js';
 import {
   findChromeBinary,
   detectOS,
@@ -23,6 +26,7 @@ export class OpenBrowser {
   private config: Config;
   private sessionManager: SessionManager;
   private chromeService: ChromeService;
+  private rateLimiter: RateLimiter;
 
   constructor(options?: { configPath?: string; profileDir?: string }) {
     const overrides = options?.profileDir
@@ -31,6 +35,7 @@ export class OpenBrowser {
     this.config = loadConfig(options?.configPath, overrides);
     this.sessionManager = new SessionManager(this.config.cdpPort);
     this.chromeService = new ChromeService(this.config);
+    this.rateLimiter = new RateLimiter(this.config.rateLimits);
   }
 
   async connect(): Promise<Browser> {
@@ -72,6 +77,40 @@ export class OpenBrowser {
 
   async listSessions(): Promise<SessionInfo[]> {
     return this.sessionManager.getSessions();
+  }
+
+  listRecipes(): RecipeListItem[] {
+    return listRecipes();
+  }
+
+  async runRecipe<T = unknown>(name: string, args?: Record<string, string>): Promise<T> {
+    const recipe = getRecipe(name);
+    if (!recipe) {
+      const available = listRecipes().map((r) => r.name).join(', ');
+      throw new Error(`Unknown recipe: ${name}. Available: ${available}`);
+    }
+
+    // Check required sessions
+    for (const domain of recipe.requires) {
+      const session = await this.getSession(domain);
+      if (!session || !session.active) {
+        throw new Error(
+          `${domain} session not active. Run: openbrowser login`,
+        );
+      }
+    }
+
+    // Rate limit
+    for (const domain of recipe.requires) {
+      await this.rateLimiter.wait(domain);
+    }
+
+    const browser = await this.connect();
+    try {
+      return (await recipe.run(browser, args)) as T;
+    } finally {
+      await browser.close();
+    }
   }
 
   async diagnose(): Promise<DoctorData> {
@@ -331,4 +370,5 @@ export class OpenBrowser {
   }
 }
 
-export type { Config, StatusData, SessionInfo, DoctorData, DoctorCheck } from './types.js';
+export type { Config, StatusData, SessionInfo, DoctorData, DoctorCheck, CommandOutput } from './types.js';
+export type { Recipe, RecipeListItem, PrsResult, InboxResult, LinkedInResult, SearchResult } from '../recipes/index.js';

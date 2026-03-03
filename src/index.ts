@@ -9,6 +9,7 @@ import { setupCommand } from './commands/setup.js';
 import { loginCommand } from './commands/login.js';
 import { statusCommand } from './commands/status.js';
 import { doctorCommand } from './commands/doctor.js';
+import { recipeListCommand, recipeRunCommand } from './commands/recipe.js';
 
 assertSupportedPlatform();
 
@@ -55,6 +56,27 @@ program
   .option('--format <format>', 'Output format: json or text')
   .action(async (options: { format?: string }) => {
     await doctorCommand({ ...options, profile: program.opts().profile });
+  });
+
+const recipeCmd = program
+  .command('recipe')
+  .description('Run a pre-built recipe or list available recipes');
+
+recipeCmd
+  .command('list')
+  .description('List available recipes')
+  .option('--format <format>', 'Output format: json or text')
+  .action(async (options: { format?: string }) => {
+    await recipeListCommand({ ...options, profile: program.opts().profile });
+  });
+
+recipeCmd
+  .command('run <name>')
+  .description('Run a recipe by name')
+  .option('--format <format>', 'Output format: json or text')
+  .option('--arg <args...>', 'Recipe arguments as key=value pairs')
+  .action(async (name: string, options: { format?: string; arg?: string[] }) => {
+    await recipeRunCommand(name, { ...options, profile: program.opts().profile });
   });
 
 await program.parseAsync();

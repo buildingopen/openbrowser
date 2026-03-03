@@ -8,6 +8,7 @@ import type {
   SessionInfo,
   DoctorData,
 } from './types.js';
+import type { RecipeListItem } from '../recipes/base.js';
 
 function getVersion(): string {
   try {
@@ -58,8 +59,15 @@ export function printOutput<T>(output: CommandOutput<T>, format: 'json' | 'text'
     case 'doctor':
       printDoctorText(output as unknown as CommandOutput<DoctorData>);
       break;
+    case 'recipe:list':
+      printRecipeListText(output as unknown as CommandOutput<RecipeListItem[]>);
+      break;
     default:
-      console.log(output.summary);
+      if (output.command.startsWith('recipe:')) {
+        printRecipeResultText(output);
+      } else {
+        console.log(output.summary);
+      }
   }
 }
 
@@ -141,6 +149,71 @@ function printDoctorText(output: CommandOutput<DoctorData>): void {
         `${fails} failure${fails === 1 ? '' : 's'}, ${warns} warning${warns === 1 ? '' : 's'}`,
       ),
     );
+  }
+  console.log();
+}
+
+function printRecipeListText(output: CommandOutput<RecipeListItem[]>): void {
+  console.log();
+  console.log(chalk.bold('Available Recipes'));
+  console.log();
+
+  for (const recipe of output.data) {
+    console.log(`  ${chalk.green(recipe.name.padEnd(12))} ${recipe.description}`);
+    console.log(`  ${' '.repeat(12)} ${chalk.dim(`requires: ${recipe.requires.join(', ')}`)}`);
+    if (recipe.args && recipe.args.length > 0) {
+      for (const arg of recipe.args) {
+        const req = arg.required ? chalk.yellow('(required)') : chalk.dim('(optional)');
+        console.log(`  ${' '.repeat(12)} ${chalk.dim(`--arg ${arg.name}=...`)} ${req} ${chalk.dim(arg.description)}`);
+      }
+    }
+    console.log();
+  }
+}
+
+function printRecipeResultText(output: CommandOutput<unknown>): void {
+  console.log();
+
+  if (!output.success) {
+    console.log(chalk.red(`Error: ${output.error ?? output.summary}`));
+    console.log();
+    return;
+  }
+
+  const recipeName = output.command.replace('recipe:', '');
+  console.log(chalk.bold(`Recipe: ${recipeName}`));
+  console.log(chalk.dim(output.summary));
+  console.log();
+
+  const data = output.data as Record<string, unknown>;
+  if (!data) return;
+
+  // Format based on recipe type
+  if (recipeName === 'prs' && Array.isArray(data.prs)) {
+    for (const pr of data.prs as Array<Record<string, string>>) {
+      console.log(`  ${chalk.green(pr.repo ?? '')} ${pr.title}`);
+      if (pr.updatedAt) console.log(`    ${chalk.dim(pr.updatedAt)}`);
+    }
+  } else if (recipeName === 'inbox' && Array.isArray(data.messages)) {
+    for (const msg of data.messages as Array<Record<string, string>>) {
+      console.log(`  ${chalk.green(msg.from ?? '')} ${msg.subject}`);
+      if (msg.snippet) console.log(`    ${chalk.dim(msg.snippet)}`);
+    }
+  } else if (recipeName === 'linkedin' && Array.isArray(data.notifications)) {
+    for (const n of data.notifications as Array<Record<string, string>>) {
+      console.log(`  ${n.text}`);
+      if (n.time) console.log(`    ${chalk.dim(n.time)}`);
+    }
+  } else if (recipeName === 'search' && Array.isArray(data.results)) {
+    for (const r of data.results as Array<Record<string, string>>) {
+      console.log(`  ${chalk.green(r.title)}`);
+      console.log(`    ${chalk.blue(r.url)}`);
+      if (r.snippet) console.log(`    ${chalk.dim(r.snippet)}`);
+      console.log();
+    }
+  } else {
+    // Generic: just print the summary
+    console.log(`  ${output.summary}`);
   }
   console.log();
 }

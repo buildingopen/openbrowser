@@ -48,6 +48,7 @@ export interface Config {
   vncPassword: string;
   vncPort: number;
   xvfbDisplay: string;
+  rateLimits?: Record<string, number>;
 }
 
 export interface AuthCookieSpec {
