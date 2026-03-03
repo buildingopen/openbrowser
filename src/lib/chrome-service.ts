@@ -330,14 +330,20 @@ export class ChromeService {
   }
 
   getMcpConfig(): object {
+    const args: string[] = ['openbrowser-ai', 'mcp'];
+    const defaultProfile = join(
+      process.env['HOME'] ?? '~',
+      '.openbrowser',
+      'chrome-profile',
+    );
+    if (this.config.profileDir !== defaultProfile) {
+      args.push('--profile', this.config.profileDir);
+    }
     return {
       mcpServers: {
-        browser: {
+        openbrowser: {
           command: 'npx',
-          args: [
-            '@playwright/mcp@latest',
-            `--cdp-endpoint=http://localhost:${this.config.cdpPort}`,
-          ],
+          args,
         },
       },
     };

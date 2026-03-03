@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AuthCookieSpec } from '../dist/lib/types.js';
 import { AUTH_COOKIE_SPECS } from '../dist/lib/types.js';
+import { SessionManager } from '../dist/lib/session.js';
 
 // Test the session analysis logic without needing a real CDP connection.
 // We extract the analysis logic into a testable function.
@@ -168,5 +169,23 @@ describe('session analysis', () => {
     assert.ok(domains.includes('google.com'));
     assert.ok(domains.includes('github.com'));
     assert.ok(domains.includes('linkedin.com'));
+  });
+
+  it('SessionManager merges custom domains with built-in', () => {
+    const sm = new SessionManager(9222, [
+      { domain: 'slack.com', requiredCookies: ['d'], label: 'Slack' },
+    ]);
+    const specs = sm.getSpecs();
+    assert.equal(specs.length, 4);
+    assert.ok(specs.some((s) => s.domain === 'slack.com'));
+  });
+
+  it('SessionManager does not duplicate existing domains', () => {
+    const sm = new SessionManager(9222, [
+      { domain: 'google.com', requiredCookies: ['OTHER'], label: 'Custom Google' },
+    ]);
+    const specs = sm.getSpecs();
+    const googleSpecs = specs.filter((s) => s.domain === 'google.com');
+    assert.equal(googleSpecs.length, 1);
   });
 });

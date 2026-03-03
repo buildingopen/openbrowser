@@ -17,6 +17,13 @@ describe('CLI', () => {
     assert.ok(out.includes('login'));
     assert.ok(out.includes('status'));
     assert.ok(out.includes('doctor'));
+    assert.ok(out.includes('start'));
+    assert.ok(out.includes('stop'));
+    assert.ok(out.includes('restart'));
+    assert.ok(out.includes('sessions'));
+    assert.ok(out.includes('domain'));
+    assert.ok(out.includes('mcp'));
+    assert.ok(out.includes('recipe'));
   });
 
   it('status --format json returns valid JSON with envelope', () => {
@@ -86,6 +93,17 @@ describe('CLI', () => {
         assert.ok(fail.fix, `Check "${fail.name}" failed but has no fix suggestion`);
       }
     }
+  });
+
+  it('recipe list --format json shows 9 recipes', () => {
+    const out = execSync(`node ${CLI} recipe list --format json`, { encoding: 'utf-8' });
+    const parsed = JSON.parse(out);
+    assert.equal(parsed.command, 'recipe:list');
+    assert.equal(parsed.data.length, 9);
+    const names = parsed.data.map((r: { name: string }) => r.name);
+    assert.ok(names.includes('prs'));
+    assert.ok(names.includes('calendar'));
+    assert.ok(names.includes('messages'));
   });
 
   it('Windows platform guard exits with message', () => {

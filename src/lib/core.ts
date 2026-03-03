@@ -6,6 +6,7 @@ import type {
   DoctorData,
   DoctorCheck,
   SessionInfo,
+  AuthCookieSpec,
 } from './types.js';
 import { loadConfig, saveConfig } from './config.js';
 import { SessionManager } from './session.js';
@@ -24,6 +25,7 @@ import { join } from 'node:path';
 
 export class OpenBrowser {
   private config: Config;
+  private configPath?: string;
   private sessionManager: SessionManager;
   private chromeService: ChromeService;
   private rateLimiter: RateLimiter;
@@ -32,8 +34,9 @@ export class OpenBrowser {
     const overrides = options?.profileDir
       ? { profileDir: options.profileDir }
       : undefined;
+    this.configPath = options?.configPath;
     this.config = loadConfig(options?.configPath, overrides);
-    this.sessionManager = new SessionManager(this.config.cdpPort);
+    this.sessionManager = new SessionManager(this.config.cdpPort, this.config.customDomains);
     this.chromeService = new ChromeService(this.config);
     this.rateLimiter = new RateLimiter(this.config.rateLimits);
   }
@@ -79,6 +82,57 @@ export class OpenBrowser {
     return this.sessionManager.getSessions();
   }
 
+  // Service control
+  startService(): void {
+    this.chromeService.start();
+  }
+
+  stopService(): void {
+    this.chromeService.stop();
+  }
+
+  restartService(): void {
+    this.chromeService.restart();
+  }
+
+  async isServiceRunning(): Promise<boolean> {
+    return this.chromeService.isRunning();
+  }
+
+  // Domain management
+  addDomain(domain: string, cookies: string[], label?: string): void {
+    const spec: AuthCookieSpec = {
+      domain,
+      requiredCookies: cookies,
+      label: label ?? domain,
+    };
+    const custom = this.config.customDomains ?? [];
+    const existing = custom.findIndex((d) => d.domain === domain);
+    if (existing >= 0) {
+      custom[existing] = spec;
+    } else {
+      custom.push(spec);
+    }
+    this.config.customDomains = custom;
+    saveConfig(this.config, this.configPath);
+    this.sessionManager = new SessionManager(this.config.cdpPort, this.config.customDomains);
+  }
+
+  removeDomain(domain: string): boolean {
+    const custom = this.config.customDomains ?? [];
+    const idx = custom.findIndex((d) => d.domain === domain);
+    if (idx < 0) return false;
+    custom.splice(idx, 1);
+    this.config.customDomains = custom.length > 0 ? custom : undefined;
+    saveConfig(this.config, this.configPath);
+    this.sessionManager = new SessionManager(this.config.cdpPort, this.config.customDomains);
+    return true;
+  }
+
+  listDomains(): AuthCookieSpec[] {
+    return this.sessionManager.getSpecs();
+  }
+
   listRecipes(): RecipeListItem[] {
     return listRecipes();
   }
@@ -90,13 +144,16 @@ export class OpenBrowser {
       throw new Error(`Unknown recipe: ${name}. Available: ${available}`);
     }
 
-    // Check required sessions
-    for (const domain of recipe.requires) {
-      const session = await this.getSession(domain);
-      if (!session || !session.active) {
-        throw new Error(
-          `${domain} session not active. Run: openbrowser login`,
-        );
+    // Check required sessions in one CDP call
+    if (recipe.requires.length > 0) {
+      const sessions = await this.listSessions();
+      for (const domain of recipe.requires) {
+        const session = sessions.find((s) => s.domain === domain);
+        if (!session || !session.active) {
+          throw new Error(
+            `${domain} session not active. Run: openbrowser login`,
+          );
+        }
       }
     }
 
@@ -336,7 +393,7 @@ export class OpenBrowser {
     }
 
     // Save default config
-    saveConfig(this.config);
+    saveConfig(this.config, this.configPath);
 
     // Install service
     let servicePath: string;
@@ -370,5 +427,6 @@ export class OpenBrowser {
   }
 }
 
-export type { Config, StatusData, SessionInfo, DoctorData, DoctorCheck, CommandOutput } from './types.js';
-export type { Recipe, RecipeListItem, PrsResult, InboxResult, LinkedInResult, SearchResult } from '../recipes/index.js';
+export type { Config, StatusData, SessionInfo, DoctorData, DoctorCheck, CommandOutput, AuthCookieSpec } from './types.js';
+export type { Recipe, RecipeListItem, RecipeOptions, PrsResult, InboxResult, LinkedInResult, SearchResult, IssuesResult, NotificationsResult, CalendarResult, ProfileResult, MessagesResult } from '../recipes/index.js';
+export { RecipeError, withRetry } from '../recipes/index.js';

@@ -59,6 +59,16 @@ function formatRecipeSummary(name: string, data: unknown): string {
       return `${d.total ?? 0} notification${(d.total as number) === 1 ? '' : 's'}`;
     case 'search':
       return `${d.total ?? 0} result${(d.total as number) === 1 ? '' : 's'} for "${d.query}"`;
+    case 'issues':
+      return `${d.total ?? 0} issue${(d.total as number) === 1 ? '' : 's'} assigned`;
+    case 'notifications':
+      return `${d.total ?? 0} notification${(d.total as number) === 1 ? '' : 's'}`;
+    case 'calendar':
+      return `${d.total ?? 0} event${(d.total as number) === 1 ? '' : 's'} today`;
+    case 'profile':
+      return `Profile: ${d.name ?? 'unknown'}`;
+    case 'messages':
+      return `${d.total ?? 0} conversation${(d.total as number) === 1 ? '' : 's'}`;
     default:
       return `${name} completed`;
   }

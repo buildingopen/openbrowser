@@ -5,9 +5,22 @@ import { AUTH_COOKIE_SPECS } from './types.js';
 
 export class SessionManager {
   private cdpEndpoint: string;
+  private specs: AuthCookieSpec[];
 
-  constructor(cdpPort: number) {
+  constructor(cdpPort: number, customDomains?: AuthCookieSpec[]) {
     this.cdpEndpoint = `http://localhost:${cdpPort}`;
+    this.specs = [...AUTH_COOKIE_SPECS];
+    if (customDomains) {
+      for (const custom of customDomains) {
+        if (!this.specs.some((s) => s.domain === custom.domain)) {
+          this.specs.push(custom);
+        }
+      }
+    }
+  }
+
+  getSpecs(): AuthCookieSpec[] {
+    return this.specs;
   }
 
   async getSessions(): Promise<SessionInfo[]> {
@@ -25,7 +38,7 @@ export class SessionManager {
       }
 
       const allCookies = await context.cookies();
-      return AUTH_COOKIE_SPECS.map((spec) =>
+      return this.specs.map((spec) =>
         this.analyzeSession(spec, allCookies),
       );
     } finally {

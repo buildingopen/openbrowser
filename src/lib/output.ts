@@ -7,8 +7,10 @@ import type {
   StatusData,
   SessionInfo,
   DoctorData,
+  AuthCookieSpec,
 } from './types.js';
 import type { RecipeListItem } from '../recipes/base.js';
+import { AUTH_COOKIE_SPECS } from './types.js';
 
 function getVersion(): string {
   try {
@@ -62,9 +64,17 @@ export function printOutput<T>(output: CommandOutput<T>, format: 'json' | 'text'
     case 'recipe:list':
       printRecipeListText(output as unknown as CommandOutput<RecipeListItem[]>);
       break;
+    case 'sessions':
+      printSessionsText(output as unknown as CommandOutput<SessionInfo[]>);
+      break;
+    case 'domain:list':
+      printDomainListText(output as unknown as CommandOutput<AuthCookieSpec[]>);
+      break;
     default:
       if (output.command.startsWith('recipe:')) {
         printRecipeResultText(output);
+      } else if (output.command.startsWith('service:') || output.command.startsWith('domain:')) {
+        printActionText(output);
       } else {
         console.log(output.summary);
       }
@@ -171,6 +181,43 @@ function printRecipeListText(output: CommandOutput<RecipeListItem[]>): void {
   }
 }
 
+function printSessionsText(output: CommandOutput<SessionInfo[]>): void {
+  console.log();
+  console.log(chalk.bold('Tracked Sessions'));
+  console.log();
+  if (output.data.length === 0) {
+    console.log('  No tracked sessions.');
+  } else {
+    for (const session of output.data) {
+      printSessionLine(session);
+    }
+  }
+  console.log();
+}
+
+function printDomainListText(output: CommandOutput<AuthCookieSpec[]>): void {
+  console.log();
+  console.log(chalk.bold('Tracked Domains'));
+  console.log();
+  const builtInDomains = AUTH_COOKIE_SPECS.map((s) => s.domain);
+  for (const spec of output.data) {
+    const isBuiltIn = builtInDomains.includes(spec.domain);
+    const tag = isBuiltIn ? chalk.dim('(built-in)') : chalk.cyan('(custom)');
+    console.log(`  ${chalk.green(spec.domain.padEnd(20))} ${tag}  cookies: ${spec.requiredCookies.join(', ')}`);
+  }
+  console.log();
+}
+
+function printActionText(output: CommandOutput<unknown>): void {
+  console.log();
+  if (output.success) {
+    console.log(chalk.green(output.summary));
+  } else {
+    console.log(chalk.red(`Error: ${output.error ?? output.summary}`));
+  }
+  console.log();
+}
+
 function printRecipeResultText(output: CommandOutput<unknown>): void {
   console.log();
 
@@ -211,8 +258,36 @@ function printRecipeResultText(output: CommandOutput<unknown>): void {
       if (r.snippet) console.log(`    ${chalk.dim(r.snippet)}`);
       console.log();
     }
+  } else if (recipeName === 'issues' && Array.isArray(data.issues)) {
+    for (const issue of data.issues as Array<Record<string, unknown>>) {
+      const labels = Array.isArray(issue.labels) ? (issue.labels as string[]).join(', ') : '';
+      console.log(`  ${chalk.green(issue.repo as string ?? '')} ${issue.title as string}`);
+      if (labels) console.log(`    ${chalk.dim(labels)}`);
+    }
+  } else if (recipeName === 'notifications' && Array.isArray(data.notifications)) {
+    for (const n of data.notifications as Array<Record<string, string>>) {
+      console.log(`  ${chalk.green(n.repo ?? '')} ${n.title}`);
+      if (n.reason) console.log(`    ${chalk.dim(n.reason)}`);
+    }
+  } else if (recipeName === 'calendar' && Array.isArray(data.events)) {
+    for (const event of data.events as Array<Record<string, unknown>>) {
+      const time = event.allDay ? chalk.dim('all day') : chalk.dim(`${event.startTime} - ${event.endTime}`);
+      console.log(`  ${time}  ${event.title as string}`);
+      if (event.location) console.log(`    ${chalk.dim(event.location as string)}`);
+    }
+  } else if (recipeName === 'profile') {
+    console.log(`  ${chalk.green(data.name as string ?? '')}`);
+    if (data.headline) console.log(`  ${data.headline as string}`);
+    if (data.location) console.log(`  ${chalk.dim(data.location as string)}`);
+    if (data.connections) console.log(`  ${chalk.dim(`${data.connections} connections`)}`);
+  } else if (recipeName === 'messages' && Array.isArray(data.conversations)) {
+    for (const msg of data.conversations as Array<Record<string, unknown>>) {
+      const unread = msg.unread ? chalk.yellow('[unread]') : '';
+      console.log(`  ${chalk.green(msg.name as string ?? '')} ${unread}`);
+      if (msg.lastMessage) console.log(`    ${chalk.dim(msg.lastMessage as string)}`);
+      if (msg.time) console.log(`    ${chalk.dim(msg.time as string)}`);
+    }
   } else {
-    // Generic: just print the summary
     console.log(`  ${output.summary}`);
   }
   console.log();

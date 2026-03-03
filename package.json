@@ -1,6 +1,6 @@
 {
   "name": "openbrowser-ai",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Managed authenticated browser for AI agents. Persistent Chrome sessions with CDP access, session health monitoring, and cross-platform service management.",
   "type": "module",
   "bin": {
@@ -53,9 +53,11 @@
     "url": "https://github.com/federicodeponte/openbrowser.git"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.9.0",
     "chalk": "5.4.1",
     "commander": "13.1.0",
-    "playwright-core": "1.50.1"
+    "playwright-core": "1.50.1",
+    "zod": "3.24.2"
   },
   "devDependencies": {
     "@types/node": "22.13.5",

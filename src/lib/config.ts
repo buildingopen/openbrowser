@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import type { Config } from './types.js';
 import { getConfigDir, getProfileDir } from './platform.js';
 
@@ -45,7 +45,7 @@ export function loadConfig(configPath?: string, overrides?: Partial<Config>): Co
 
 export function saveConfig(config: Config, configPath?: string): void {
   const path = configPath ?? getConfigPath();
-  const dir = getConfigDir();
+  const dir = dirname(path);
 
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
