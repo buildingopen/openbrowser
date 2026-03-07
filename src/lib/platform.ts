@@ -10,7 +10,7 @@ export function assertSupportedPlatform(): void {
   if (process.platform === 'win32') {
     console.error('OpenBrowser supports macOS and Linux only.');
     console.error(
-      'Track Windows support: https://github.com/federicodeponte/openbrowser/issues/1',
+      'Track Windows support: https://github.com/buildingopen/openbrowser/issues/1',
     );
     process.exit(1);
   }

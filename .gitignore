@@ -3,3 +3,7 @@ dist/
 *.tgz
 .DS_Store
 WORKPLAN-*.md
+create_demo_video.py
+demo.tape
+demo.gif
+linkedin-post.txt
