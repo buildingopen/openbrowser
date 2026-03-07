@@ -4,6 +4,12 @@
 
 Log into Chrome once, and AI tools like Claude, Cursor, and others can browse the web as you.
 
+<p align="center">
+  <a href="https://github.com/buildingopen/openbrowser/blob/main/openbrowser-demo.mp4">
+    <img src="openbrowser-demo-thumb.png" alt="OpenBrowser Demo" width="480">
+  </a>
+</p>
+
 ```bash
 npx openbrowser setup     # One-time setup (~2 min)
 npx openbrowser login     # Log into Google, GitHub, LinkedIn
