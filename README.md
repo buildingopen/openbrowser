@@ -1,13 +1,13 @@
 # OpenBrowser
 
-**Give your AI agent a browser.** Managed authenticated Chrome sessions with CDP access, session health monitoring, built-in MCP server, recipes, and cross-platform service management.
+**Give AI your browser.** Check email, review PRs, read LinkedIn messages, search Google, see your calendar -- all from one setup. No API keys. No OAuth. No per-service config.
 
-OpenBrowser solves the "authenticated browser" problem for AI agents: your agent needs to check Gmail, review GitHub PRs, or search the web as you, not as an anonymous user. OpenBrowser manages a persistent Chrome instance with your sessions, exposes it via CDP, and provides recipes for common tasks.
+Log into Chrome once, and AI tools like Claude, Cursor, and others can browse the web as you.
 
-```
-npx openbrowser setup     # Install Chrome service, configure MCP
-npx openbrowser login     # Log into your accounts
-npx openbrowser recipe run prs   # Check your GitHub PRs
+```bash
+npx openbrowser setup     # One-time setup (~2 min)
+npx openbrowser login     # Log into Google, GitHub, LinkedIn
+npx openbrowser inbox     # AI reads your unread emails
 ```
 
 **macOS + Linux.** Works standalone or as an MCP server for Claude, Cursor, and other AI tools.
@@ -31,86 +31,56 @@ Both `openbrowser` and `openbrowser-ai` work as CLI names.
 ## Quick Start
 
 ```bash
-# 1. Install Chrome service and configure
+# 1. Set up OpenBrowser (~2 min, one time)
 openbrowser setup
 
-# 2. Log into your accounts (opens Chrome GUI on macOS, VNC on Linux)
+# 2. Log into your accounts
 openbrowser login
 
-# 3. Check session health
+# 3. See which accounts are connected
 openbrowser status
 
-# 4. Run a recipe
-openbrowser recipe run prs          # GitHub PRs
-openbrowser recipe run inbox        # Gmail inbox
-openbrowser recipe run calendar     # Today's Google Calendar events
-openbrowser recipe run search --arg query="AI agent frameworks 2026"
+# 4. Try it out
+openbrowser inbox                   # Read your unread emails
+openbrowser prs                     # Check your open pull requests
+openbrowser calendar                # See today's meetings and events
+openbrowser search "AI agent frameworks 2026"
 ```
+
+## What Your AI Can Do
+
+```bash
+openbrowser inbox                    # Read your unread emails
+openbrowser prs                      # Check your open pull requests
+openbrowser calendar                 # See today's meetings and events
+openbrowser search "your query"      # Search Google as you
+openbrowser issues                   # Check issues assigned to you
+openbrowser notifications            # Read your GitHub notifications
+openbrowser linkedin                 # See your LinkedIn notifications
+openbrowser profile                  # Get your LinkedIn profile
+openbrowser messages                 # Read your LinkedIn messages
+openbrowser recipe list              # See all 9 recipes
+```
+
+All recipes work through the browser by default. 6 of 9 also have faster API paths that work without the browser (GitHub via token, Gmail via IMAP, Calendar via API). See [API-first setup](#api-first-setup-optional) for details.
 
 ## Commands
 
-### Service Control
-
 ```bash
-openbrowser setup      # Install Chrome service, save config, output MCP config
-openbrowser start      # Start the Chrome service
-openbrowser stop       # Stop the Chrome service
-openbrowser restart    # Restart the Chrome service
-openbrowser login      # Open Chrome GUI for manual login
-openbrowser status     # Show Chrome status and session health
-openbrowser sessions   # List all tracked sessions
-openbrowser doctor     # Run full diagnostics
+openbrowser setup      # One-time setup (~2 min)
+openbrowser login      # Log into your accounts
+openbrowser status     # See which accounts are connected
+openbrowser start      # Start the browser
+openbrowser stop       # Stop the browser
+openbrowser restart    # Restart the browser
+openbrowser doctor     # Diagnose connection issues
 ```
 
-### Custom Auth Domains
+## Connect to AI Tools
 
-Track sessions beyond the built-in Google/GitHub/LinkedIn:
+OpenBrowser includes a built-in MCP server so AI tools can use your browser directly.
 
-```bash
-openbrowser domain add slack.com d lc --label Slack
-openbrowser domain add jira.atlassian.net cloud.session.token --label Jira
-openbrowser domain list
-openbrowser domain remove slack.com
-```
-
-Custom domains persist to config and appear in `status`, `sessions`, and `doctor`.
-
-### Recipes
-
-```bash
-openbrowser recipe list              # Show all available recipes
-openbrowser recipe run <name>        # Run a recipe
-```
-
-| Recipe | Description | Requires |
-|--------|-------------|----------|
-| `prs` | List your open GitHub pull requests | github.com |
-| `inbox` | Check Gmail for unread messages | google.com |
-| `linkedin` | Check LinkedIn notifications | linkedin.com |
-| `search` | Search Google and return results | google.com |
-| `issues` | List GitHub issues assigned to you | github.com |
-| `notifications` | Check GitHub notifications | github.com |
-| `calendar` | Today's Google Calendar events | google.com |
-| `profile` | Get your LinkedIn profile summary | linkedin.com |
-| `messages` | Check LinkedIn unread messages | linkedin.com |
-
-The `search` recipe takes a query argument:
-
-```bash
-openbrowser recipe run search --arg query="your search terms"
-```
-
-Recipes check session health before running. If a required session is expired, you get a clear error with `Run: openbrowser login` instead of a cryptic failure. Recipes also support retry/timeout infrastructure via `withRetry()`.
-
-### Built-in MCP Server
-
-OpenBrowser includes a built-in MCP server with 30 tools (session management, full browser control, recipes):
-
-```bash
-openbrowser mcp    # Start stdio MCP server
-```
-
-Add to your `claude_desktop_config.json`:
+Add this to your Claude Desktop settings:
 
 ```json
 {
@@ -123,19 +93,63 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-MCP tools include:
+The MCP server provides 31 tools: session management, full browser control, and all 9 recipes.
 
-**Session tools:** `session_list`, `session_check`, `session_cookies`, `service_status`, `service_diagnose`
+## How It Works
 
-**Browser tools:** `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_select`, `browser_hover`, `browser_evaluate`, `browser_wait`, `browser_back`, `browser_forward`, `browser_tabs`, `browser_new_tab`, `browser_switch_tab`
+OpenBrowser keeps Chrome running in the background with your real login sessions. When your AI needs to check email or review a PR, it connects to that browser and browses as you.
 
-**Recipe tools:** `recipe_list`, `recipe_run`, `recipe_run_prs`, `recipe_run_inbox`, `recipe_run_linkedin`, `recipe_run_search`, `recipe_run_issues`, `recipe_run_notifications`, `recipe_run_calendar`, `recipe_run_profile`, `recipe_run_messages`
+1. **Setup** installs Chrome as a background process that starts automatically
+2. **Login** opens Chrome so you can sign into your accounts normally
+3. **Sessions persist** across restarts -- no need to log in again
+4. **Recipes** connect to the running browser, open pages, and extract structured data
+5. **MCP server** gives AI tools direct access to sessions, browser control, and recipes
+
+## Requirements
+
+- Node.js >= 22.6
+- Google Chrome or Chromium
+- macOS or Linux (Windows not supported)
+
+---
+
+## Advanced
+
+### API-First Setup (Optional)
+
+6 of 9 recipes can skip the browser entirely if you set env vars. This is faster and works on machines without a display.
+
+**GitHub** (prs, issues, notifications):
+```bash
+gh auth login              # easiest
+# or: export GITHUB_TOKEN="ghp_..."
+```
+
+**Gmail** (inbox):
+```bash
+export GMAIL_USER="you@gmail.com"
+export GMAIL_APP_PASSWORD="xxxx xxxx xxxx xxxx"
+```
+
+**Google Calendar** (calendar):
+```bash
+export GOOGLE_ACCESS_TOKEN="ya29...."
+# or: export GOOGLE_CALENDAR_API_KEY="AIza..."
+```
+
+### Custom Accounts
+
+Track sessions beyond the built-in Google/GitHub/LinkedIn:
+
+```bash
+openbrowser domain add slack.com d lc --label Slack
+openbrowser domain list
+openbrowser domain remove slack.com
+```
 
 ### Output Format
 
 All commands support `--format json|text`. Default: text when interactive (TTY), JSON when piped.
-
-JSON output uses a typed envelope:
 
 ```json
 {
@@ -143,88 +157,23 @@ JSON output uses a typed envelope:
   "version": "0.4.0",
   "timestamp": "2026-03-03T00:00:00.000Z",
   "success": true,
-  "data": {
-    "prs": [
-      { "title": "Fix auth flow", "repo": "org/repo", "url": "..." }
-    ],
-    "total": 1
-  },
+  "data": { "prs": [...], "total": 1 },
   "summary": "1 open PR"
 }
 ```
 
-### Profile Override
-
-Use `--profile` to point at an existing Chrome profile directory:
-
-```bash
-openbrowser status --profile /root/.config/authenticated-chrome
-```
-
-## Programmatic API (SDK)
-
-Use OpenBrowser as a library in your own tools:
+### Programmatic API (SDK)
 
 ```typescript
 import { OpenBrowser } from 'openbrowser-ai';
 
 const ob = new OpenBrowser();
-
-// Check session health
 const status = await ob.getStatus();
-for (const session of status.sessions) {
-  console.log(`${session.domain}: ${session.active ? 'active' : 'inactive'}`);
-}
-
-// Service control
-ob.startService();
-ob.stopService();
-
-// Custom domains
-ob.addDomain('slack.com', ['d', 'lc'], 'Slack');
-const domains = ob.listDomains();
-
-// Run a recipe
 const prs = await ob.runRecipe('prs');
-console.log(prs);
-
-// Direct CDP connection (Playwright Browser handle)
-const browser = await ob.connect();
-const page = await browser.contexts()[0].newPage();
-await page.goto('https://example.com');
-await browser.close(); // disconnects only, Chrome stays running
+const browser = await ob.connect(); // Direct Playwright CDP handle
 ```
 
-### Exported Types
-
-```typescript
-import type {
-  OpenBrowser,
-  Config,
-  StatusData,
-  SessionInfo,
-  DoctorData,
-  DoctorCheck,
-  CommandOutput,
-  AuthCookieSpec,
-  Recipe,
-  RecipeListItem,
-  RecipeOptions,
-  PrsResult,
-  InboxResult,
-  LinkedInResult,
-  SearchResult,
-  IssuesResult,
-  NotificationsResult,
-  CalendarResult,
-  ProfileResult,
-  MessagesResult,
-} from 'openbrowser-ai';
-
-import { RecipeError, withRetry } from 'openbrowser-ai';
-```
-
-## Configuration
+### Configuration
 
 Config file: `~/.openbrowser/config.json`
 
@@ -232,35 +181,17 @@ Config file: `~/.openbrowser/config.json`
 {
   "cdpPort": 9222,
   "profileDir": "~/.openbrowser/chrome-profile",
-  "timezone": "Europe/Berlin",
-  "vncPassword": "auto-generated",
-  "vncPort": 5900,
-  "xvfbDisplay": ":98",
-  "rateLimits": {
-    "linkedin.com": 5000,
-    "google.com": 2000
-  },
-  "customDomains": [
-    { "domain": "slack.com", "requiredCookies": ["d", "lc"], "label": "Slack" }
-  ]
+  "timezone": "Europe/Berlin"
 }
 ```
 
-## How It Works
+### Linux Headless
 
-1. **Chrome runs as a service** (systemd/launchd) with a dedicated profile directory
-2. **CDP (Chrome DevTools Protocol)** exposes the running browser on `localhost:9222`
-3. **Sessions persist** in the Chrome profile; cookies survive restarts
-4. **Session health** is monitored by reading cookies via CDP (not from encrypted SQLite)
-5. **Recipes** connect via CDP, open pages in the existing browser context, and extract data
-6. **Built-in MCP server** gives AI agents session management, browser control, and recipes via a single `openbrowser mcp` command
+On headless Linux servers, `openbrowser login` uses a virtual display with VNC so you can log in remotely. Requires `xvfb` and `x11vnc`:
 
-## Requirements
-
-- Node.js >= 18
-- Google Chrome or Chromium
-- macOS or Linux (Windows not supported)
-- For Linux headless login: Xvfb, x11vnc
+```bash
+apt install xvfb x11vnc
+```
 
 ## License
 

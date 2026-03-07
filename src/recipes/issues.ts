@@ -1,11 +1,49 @@
 import type { Browser } from 'playwright-core';
 import type { Recipe, IssuesResult, IssueInfo } from './base.js';
-import { newPage } from './base.js';
+import { newPage, warnIfEmpty } from './base.js';
+import { getGitHubToken, githubApi } from './github-api.js';
+
+interface GitHubIssue {
+  title: string;
+  html_url: string;
+  state: string;
+  updated_at: string;
+  labels: Array<{ name: string }>;
+  repository_url: string;
+}
 
 export const issuesRecipe: Recipe<IssuesResult> = {
   name: 'issues',
-  description: 'List GitHub issues assigned to you',
+  description: 'Check issues assigned to you',
   requires: ['github.com'],
+
+  async runWithoutBrowser(): Promise<IssuesResult | null> {
+    const token = getGitHubToken();
+    if (!token) return null;
+
+    const data = await githubApi<GitHubIssue[]>(
+      '/issues?filter=assigned&state=open&sort=updated&per_page=100',
+      token,
+    );
+
+    // /issues endpoint also returns PRs; filter them out
+    const issues: IssueInfo[] = data
+      .filter((item) => !item.html_url.includes('/pull/'))
+      .map((item) => {
+        const repoMatch = item.repository_url.match(/repos\/(.+)$/);
+        return {
+          title: item.title,
+          url: item.html_url,
+          repo: repoMatch ? repoMatch[1] : '',
+          state: item.state,
+          labels: item.labels.map((l) => l.name),
+          updatedAt: item.updated_at,
+        };
+      });
+
+    const { warning } = warnIfEmpty(issues, 'issues');
+    return { issues, total: issues.length, ...(warning ? { warning } : {}) };
+  },
 
   async run(browser: Browser): Promise<IssuesResult> {
     const page = await newPage(browser, 'https://github.com/issues/assigned');
@@ -53,6 +91,7 @@ export const issuesRecipe: Recipe<IssuesResult> = {
     });
 
     await page.close();
-    return { issues, total: issues.length };
+    const { warning } = warnIfEmpty(issues, 'issues');
+    return { issues, total: issues.length, ...(warning ? { warning } : {}) };
   },
 };

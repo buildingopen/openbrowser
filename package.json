@@ -1,7 +1,7 @@
 {
   "name": "openbrowser-ai",
   "version": "0.4.0",
-  "description": "Managed authenticated browser for AI agents. Persistent Chrome sessions with CDP access, session health monitoring, and cross-platform service management.",
+  "description": "Give AI your browser. Check email, review PRs, search the web -- all authenticated, no API keys.",
   "type": "module",
   "bin": {
     "openbrowser": "./dist/index.js",
@@ -29,7 +29,7 @@
     "linux"
   ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.6.0"
   },
   "files": [
     "dist",
@@ -37,14 +37,18 @@
     "LICENSE"
   ],
   "keywords": [
+    "ai-agent",
     "browser",
     "chrome",
-    "cdp",
+    "mcp",
+    "authenticated-browser",
+    "ai-browsing",
+    "gmail",
+    "github",
+    "linkedin",
     "automation",
-    "ai-agent",
-    "session-management",
-    "playwright",
-    "mcp"
+    "cdp",
+    "playwright"
   ],
   "author": "Federico De Ponte",
   "license": "MIT",
@@ -53,7 +57,7 @@
     "url": "https://github.com/federicodeponte/openbrowser.git"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.9.0",
+    "@modelcontextprotocol/sdk": "1.27.1",
     "chalk": "5.4.1",
     "commander": "13.1.0",
     "playwright-core": "1.50.1",

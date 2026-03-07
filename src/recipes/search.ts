@@ -1,11 +1,11 @@
 import type { Browser } from 'playwright-core';
 import type { Recipe, SearchResult, SearchResultItem } from './base.js';
-import { newPage } from './base.js';
+import { newPage, warnIfEmpty } from './base.js';
 
 export const searchRecipe: Recipe<SearchResult> = {
   name: 'search',
-  description: 'Search Google and return results',
-  requires: ['google.com'],
+  description: 'Search Google as you',
+  requires: [],
   args: [
     { name: 'query', description: 'Search query', required: true },
   ],
@@ -13,7 +13,7 @@ export const searchRecipe: Recipe<SearchResult> = {
   async run(browser: Browser, args?: Record<string, string>): Promise<SearchResult> {
     const query = args?.query;
     if (!query) {
-      throw new Error('Search query is required. Usage: openbrowser recipe search --arg query="your search"');
+      throw new Error('Search query is required. Usage: openbrowser search "your query"');
     }
 
     const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en`;
@@ -92,6 +92,7 @@ export const searchRecipe: Recipe<SearchResult> = {
 
     await page.close();
 
-    return { query, results, total: results.length };
+    const { warning } = warnIfEmpty(results, 'search');
+    return { query, results, total: results.length, ...(warning ? { warning } : {}) };
   },
 };

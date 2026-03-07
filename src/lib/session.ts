@@ -28,7 +28,7 @@ export class SessionManager {
     try {
       browser = await chromium.connectOverCDP(this.cdpEndpoint);
     } catch {
-      throw new Error('Chrome not running or CDP not accessible');
+      throw new Error('Browser is not running. Start it with: openbrowser start');
     }
 
     try {
@@ -95,7 +95,7 @@ export class SessionManager {
     }
 
     if (!active && !allPresent) {
-      result.warning = `Missing cookies: ${spec.requiredCookies.filter((n) => !foundCookies.includes(n)).join(', ')}`;
+      result.warning = 'Not logged in';
     }
 
     if (expired) {

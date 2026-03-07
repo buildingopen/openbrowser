@@ -1,11 +1,53 @@
 import type { Browser } from 'playwright-core';
 import type { Recipe, NotificationsResult, GhNotification } from './base.js';
-import { newPage } from './base.js';
+import { newPage, warnIfEmpty } from './base.js';
+import { getGitHubToken, githubApi } from './github-api.js';
+
+interface GitHubNotification {
+  repository: { full_name: string };
+  subject: { title: string; type: string; url: string | null };
+  reason: string;
+  updated_at: string;
+}
 
 export const notificationsRecipe: Recipe<NotificationsResult> = {
   name: 'notifications',
-  description: 'Check your GitHub notifications',
+  description: 'Read your GitHub notifications',
   requires: ['github.com'],
+
+  async runWithoutBrowser(): Promise<NotificationsResult | null> {
+    const token = getGitHubToken();
+    if (!token) return null;
+
+    const data = await githubApi<GitHubNotification[]>(
+      '/notifications?per_page=50',
+      token,
+    );
+
+    const notifications: GhNotification[] = data.map((item) => {
+      // Convert API subject URL to web URL
+      let url = '';
+      if (item.subject.url) {
+        // "https://api.github.com/repos/owner/repo/pulls/123" -> "https://github.com/owner/repo/pull/123"
+        url = item.subject.url
+          .replace('https://api.github.com/repos/', 'https://github.com/')
+          .replace('/pulls/', '/pull/')
+          .replace('/issues/', '/issues/');
+      }
+
+      return {
+        repo: item.repository.full_name,
+        title: item.subject.title,
+        type: item.subject.type,
+        reason: item.reason,
+        url,
+        updatedAt: item.updated_at,
+      };
+    });
+
+    const { warning } = warnIfEmpty(notifications, 'notifications');
+    return { notifications, total: notifications.length, ...(warning ? { warning } : {}) };
+  },
 
   async run(browser: Browser): Promise<NotificationsResult> {
     const page = await newPage(browser, 'https://github.com/notifications');
@@ -51,6 +93,7 @@ export const notificationsRecipe: Recipe<NotificationsResult> = {
     });
 
     await page.close();
-    return { notifications, total: notifications.length };
+    const { warning } = warnIfEmpty(notifications, 'notifications');
+    return { notifications, total: notifications.length, ...(warning ? { warning } : {}) };
   },
 };

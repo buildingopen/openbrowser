@@ -4,7 +4,7 @@ import { newPage } from './base.js';
 
 export const linkedinProfileRecipe: Recipe<ProfileResult> = {
   name: 'profile',
-  description: 'Get your LinkedIn profile summary',
+  description: 'Get your LinkedIn profile',
   requires: ['linkedin.com'],
 
   async run(browser: Browser): Promise<ProfileResult> {

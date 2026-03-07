@@ -50,11 +50,10 @@ describe('service commands', () => {
     }
   });
 
-  it('--help shows start, stop, restart, sessions commands', () => {
+  it('--help shows start, stop, restart commands', () => {
     const out = execSync(`node ${CLI} --help`, { encoding: 'utf-8' });
     assert.ok(out.includes('start'));
     assert.ok(out.includes('stop'));
     assert.ok(out.includes('restart'));
-    assert.ok(out.includes('sessions'));
   });
 });

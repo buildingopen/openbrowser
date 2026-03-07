@@ -1,11 +1,20 @@
 import type { Browser } from 'playwright-core';
 import type { Recipe, InboxResult, EmailInfo } from './base.js';
-import { newPage } from './base.js';
+import { newPage, warnIfEmpty } from './base.js';
+import { getGmailCredentials, fetchInboxViaImap } from './gmail-imap.js';
 
 export const inboxRecipe: Recipe<InboxResult> = {
   name: 'inbox',
-  description: 'Check your Gmail inbox for unread messages',
+  description: 'Read your unread emails',
   requires: ['google.com'],
+
+  async runWithoutBrowser(): Promise<InboxResult | null> {
+    const creds = getGmailCredentials();
+    if (!creds) return null;
+    const result = await fetchInboxViaImap(creds.user, creds.password);
+    const { warning } = warnIfEmpty(result.messages, 'inbox');
+    return { ...result, ...(warning ? { warning } : {}) };
+  },
 
   async run(browser: Browser): Promise<InboxResult> {
     const page = await newPage(browser, 'https://mail.google.com/mail/u/0/#inbox');
@@ -67,6 +76,7 @@ export const inboxRecipe: Recipe<InboxResult> = {
 
     await page.close();
 
-    return { unread, messages };
+    const { warning } = warnIfEmpty(messages, 'inbox');
+    return { unread, messages, ...(warning ? { warning } : {}) };
   },
 };

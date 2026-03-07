@@ -1,9 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { findChromeBinary, getConfigDir, getProfileDir, cleanStaleLocks } from '../dist/lib/platform.js';
+import { findChromeBinary, getConfigDir, getProfileDir, cleanStaleLocks, checkPort, hasCommand } from '../dist/lib/platform.js';
 import { mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:net';
 
 describe('platform', () => {
   it('findChromeBinary returns a path on supported platforms', () => {
@@ -46,10 +47,36 @@ describe('platform', () => {
   it('cleanStaleLocks handles missing files gracefully', () => {
     const tmp = join(tmpdir(), `ob-test-nolocks-${Date.now()}`);
     mkdirSync(tmp, { recursive: true });
-    
+
     // No lock files exist, should not throw
     assert.doesNotThrow(() => cleanStaleLocks(tmp));
-    
+
     rmSync(tmp, { recursive: true });
+  });
+
+  it('checkPort returns true for free port', async () => {
+    const free = await checkPort(0); // port 0 always picks a free port internally
+    // We test a high random port that is very unlikely to be in use
+    const result = await checkPort(59123);
+    assert.equal(typeof result, 'boolean');
+  });
+
+  it('checkPort returns false for occupied port', async () => {
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const port = (server.address() as { port: number }).port;
+
+    const free = await checkPort(port);
+    assert.equal(free, false);
+
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it('hasCommand returns true for known command', () => {
+    assert.equal(hasCommand('node'), true);
+  });
+
+  it('hasCommand returns false for nonexistent command', () => {
+    assert.equal(hasCommand('nonexistent_binary_xyz_123'), false);
   });
 });

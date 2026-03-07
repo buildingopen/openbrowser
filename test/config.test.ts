@@ -5,12 +5,14 @@ import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
+const SYSTEM_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
 describe('config', () => {
   it('loadConfig returns defaults when no file exists', () => {
     const config = loadConfig('/nonexistent/path/config.json');
     assert.equal(config.cdpPort, 9222);
-    assert.equal(config.timezone, 'Europe/Berlin');
-    assert.equal(config.vncPassword.length, 12); // random password, 12 chars
+    assert.equal(config.timezone, SYSTEM_TIMEZONE);
+    assert.equal(config.vncPassword, ''); // empty placeholder before setup generates real one
     assert.equal(config.vncPort, 5900);
     assert.equal(config.xvfbDisplay, ':98');
     assert.ok(config.profileDir.includes('chrome-profile'));
@@ -27,7 +29,7 @@ describe('config', () => {
 
     const config = loadConfig(path);
     assert.equal(config.cdpPort, 9333);
-    assert.equal(config.timezone, 'Europe/Berlin'); // default preserved
+    assert.equal(config.timezone, SYSTEM_TIMEZONE); // auto-detected system timezone
 
     rmSync(tmp, { recursive: true });
   });

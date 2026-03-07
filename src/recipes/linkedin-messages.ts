@@ -1,10 +1,10 @@
 import type { Browser } from 'playwright-core';
 import type { Recipe, MessagesResult, MessageThread } from './base.js';
-import { newPage } from './base.js';
+import { newPage, warnIfEmpty } from './base.js';
 
 export const linkedinMessagesRecipe: Recipe<MessagesResult> = {
   name: 'messages',
-  description: 'Check your LinkedIn unread messages',
+  description: 'Read your LinkedIn messages',
   requires: ['linkedin.com'],
 
   async run(browser: Browser): Promise<MessagesResult> {
@@ -47,6 +47,7 @@ export const linkedinMessagesRecipe: Recipe<MessagesResult> = {
     });
 
     await page.close();
-    return { conversations, total: conversations.length };
+    const { warning } = warnIfEmpty(conversations, 'messages');
+    return { conversations, total: conversations.length, ...(warning ? { warning } : {}) };
   },
 };

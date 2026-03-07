@@ -1,10 +1,10 @@
 import type { Browser } from 'playwright-core';
 import type { Recipe, LinkedInResult, LinkedInNotification } from './base.js';
-import { newPage } from './base.js';
+import { newPage, warnIfEmpty } from './base.js';
 
 export const linkedinRecipe: Recipe<LinkedInResult> = {
   name: 'linkedin',
-  description: 'Check your LinkedIn notifications',
+  description: 'See your LinkedIn notifications',
   requires: ['linkedin.com'],
 
   async run(browser: Browser): Promise<LinkedInResult> {
@@ -45,6 +45,7 @@ export const linkedinRecipe: Recipe<LinkedInResult> = {
 
     await page.close();
 
-    return { notifications, total: notifications.length };
+    const { warning } = warnIfEmpty(notifications, 'linkedin');
+    return { notifications, total: notifications.length, ...(warning ? { warning } : {}) };
   },
 };

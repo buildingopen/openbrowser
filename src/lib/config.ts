@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import type { Config } from './types.js';
@@ -20,20 +20,37 @@ function defaultConfig(): Config {
   return {
     cdpPort: 9222,
     profileDir: getProfileDir(),
-    timezone: 'Europe/Berlin',
-    vncPassword: randomPassword(),
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    vncPassword: '',
     vncPort: 5900,
     xvfbDisplay: ':98',
   };
 }
 
+export { randomPassword };
+
 export function getConfigPath(): string {
   return join(getConfigDir(), CONFIG_FILENAME);
+}
+
+function checkConfigPermissions(filePath: string): void {
+  try {
+    const stats = statSync(filePath);
+    const mode = stats.mode & 0o777;
+    if (mode & 0o077) {
+      process.stderr.write(
+        `Warning: ${filePath} is accessible by other users (mode ${mode.toString(8)}). Run: chmod 600 ${filePath}\n`,
+      );
+    }
+  } catch { /* file doesn't exist yet */ }
 }
 
 export function loadConfig(configPath?: string, overrides?: Partial<Config>): Config {
   const path = configPath ?? getConfigPath();
   const defaults = defaultConfig();
+
+  // Only check permissions on the real config path (skip explicit test paths)
+  if (!configPath) checkConfigPermissions(path);
 
   let config: Config;
   if (!existsSync(path)) {
@@ -63,4 +80,5 @@ export function saveConfig(config: Config, configPath?: string): void {
   }
 
   writeFileSync(path, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  try { chmodSync(path, 0o600); } catch { /* may fail on Windows */ }
 }

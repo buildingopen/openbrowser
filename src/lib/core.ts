@@ -7,9 +7,11 @@ import type {
   DoctorCheck,
   SessionInfo,
   AuthCookieSpec,
+  SetupData,
 } from './types.js';
 import { AUTH_COOKIE_SPECS } from './types.js';
-import { loadConfig, saveConfig } from './config.js';
+import { domainLabel } from './output.js';
+import { loadConfig, saveConfig, randomPassword, getConfigPath } from './config.js';
 import { SessionManager } from './session.js';
 import { ChromeService } from './chrome-service.js';
 import { RateLimiter } from './rate-limiter.js';
@@ -20,8 +22,10 @@ import {
   detectOS,
   getConfigDir,
   cleanStaleLocks,
+  checkPort,
+  hasCommand,
 } from './platform.js';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export class OpenBrowser {
@@ -53,11 +57,12 @@ export class OpenBrowser {
     const pid = cdp.running ? await this.chromeService.getPid() : undefined;
 
     let sessions: SessionInfo[] = [];
+    let sessionError: string | undefined;
     if (cdp.running) {
       try {
         sessions = await this.sessionManager.getSessions();
-      } catch {
-        // CDP connected but cookie read failed
+      } catch (err) {
+        sessionError = `Failed to read sessions: ${err instanceof Error ? err.message : String(err)}`;
       }
     }
 
@@ -72,6 +77,7 @@ export class OpenBrowser {
       },
       profile: this.config.profileDir,
       sessions,
+      ...(sessionError ? { sessionError } : {}),
     };
   }
 
@@ -84,16 +90,16 @@ export class OpenBrowser {
   }
 
   // Service control
-  startService(): void {
-    this.chromeService.start();
+  async startService(): Promise<void> {
+    await this.chromeService.start();
   }
 
   stopService(): void {
     this.chromeService.stop();
   }
 
-  restartService(): void {
-    this.chromeService.restart();
+  async restartService(): Promise<void> {
+    await this.chromeService.restart();
   }
 
   async isServiceRunning(): Promise<boolean> {
@@ -148,15 +154,27 @@ export class OpenBrowser {
       throw new Error(`Unknown recipe: ${name}. Available: ${available}`);
     }
 
+    // Try API-first path if the recipe supports it (e.g., GitHub API with token)
+    let apiError: string | undefined;
+    if (recipe.runWithoutBrowser) {
+      try {
+        const result = await recipe.runWithoutBrowser(args);
+        if (result !== null) return result as T;
+      } catch (err) {
+        apiError = err instanceof Error ? err.message : String(err);
+        // API path failed, fall back to browser
+      }
+    }
+
     // Check required sessions in one CDP call
     if (recipe.requires.length > 0) {
       const sessions = await this.listSessions();
       for (const domain of recipe.requires) {
         const session = sessions.find((s) => s.domain === domain);
         if (!session || !session.active) {
-          throw new Error(
-            `${domain} session not active. Run: openbrowser login`,
-          );
+          const label = domainLabel(domain);
+          const msg = `Not logged into ${label}. Run: openbrowser login`;
+          throw new Error(apiError ? `${msg} (API also failed: ${apiError})` : msg);
         }
       }
     }
@@ -176,6 +194,7 @@ export class OpenBrowser {
 
   async diagnose(): Promise<DoctorData> {
     const checks: DoctorCheck[] = [];
+    const os = detectOS();
 
     // 1. Chrome binary
     const chromeBinary = findChromeBinary();
@@ -189,8 +208,8 @@ export class OpenBrowser {
       checks.push({
         name: 'chrome-binary',
         status: 'fail',
-        message: 'Chrome not found',
-        fix: 'Install Google Chrome or Chromium',
+        message: 'Chrome is not installed',
+        fix: 'Download from https://google.com/chrome',
       });
     }
 
@@ -232,23 +251,47 @@ export class OpenBrowser {
       });
     }
 
-    // 4. CDP connection
+    // 4. Port conflict
+    const portFree = await checkPort(this.config.cdpPort);
+    if (cdp.running) {
+      // Port in use by Chrome, that's expected
+      checks.push({
+        name: 'port-conflict',
+        status: 'pass',
+        message: `Port ${this.config.cdpPort} in use by browser (expected)`,
+      });
+    } else if (!portFree) {
+      checks.push({
+        name: 'port-conflict',
+        status: 'fail',
+        message: `Port ${this.config.cdpPort} is occupied by another process`,
+        fix: `Another program is using port ${this.config.cdpPort}. Close that program and try again.`,
+      });
+    } else {
+      checks.push({
+        name: 'port-conflict',
+        status: 'pass',
+        message: `Port ${this.config.cdpPort} is available`,
+      });
+    }
+
+    // 5. CDP connection
     if (cdp.running) {
       checks.push({
         name: 'cdp-connection',
         status: 'pass',
-        message: `Connected to ${cdp.version ?? 'Chrome'} on port ${this.config.cdpPort}`,
+        message: `Browser responding${cdp.version ? ` (${cdp.version})` : ''}`,
       });
     } else {
       checks.push({
         name: 'cdp-connection',
         status: 'fail',
-        message: `No response on port ${this.config.cdpPort}`,
-        fix: 'Start the service: openbrowser setup, then start the service',
+        message: 'Browser is not responding',
+        fix: 'Run: openbrowser start',
       });
     }
 
-    // 5. Session health
+    // 6. Session health
     if (cdp.running) {
       try {
         const sessions = await this.sessionManager.getSessions();
@@ -284,7 +327,7 @@ export class OpenBrowser {
       }
     }
 
-    // 6. Config file
+    // 7. Config file
     const configDir = getConfigDir();
     const configFile = `${configDir}/config.json`;
     if (existsSync(configFile)) {
@@ -302,6 +345,39 @@ export class OpenBrowser {
       });
     }
 
+    // 8. Linux-specific: Xvfb and x11vnc
+    if (os === 'linux') {
+      if (hasCommand('Xvfb')) {
+        checks.push({
+          name: 'xvfb',
+          status: 'pass',
+          message: 'Xvfb is installed',
+        });
+      } else {
+        checks.push({
+          name: 'xvfb',
+          status: 'fail',
+          message: 'Xvfb not found',
+          fix: 'Install with: apt install xvfb (or: dnf install xorg-x11-server-Xvfb)',
+        });
+      }
+
+      if (hasCommand('x11vnc')) {
+        checks.push({
+          name: 'x11vnc',
+          status: 'pass',
+          message: 'x11vnc is installed',
+        });
+      } else {
+        checks.push({
+          name: 'x11vnc',
+          status: 'warn',
+          message: 'x11vnc not found (needed for login on headless servers)',
+          fix: 'Install with: apt install x11vnc (or: dnf install x11vnc)',
+        });
+      }
+    }
+
     const healthy = checks.every((c) => c.status !== 'fail');
 
     return { checks, healthy };
@@ -310,8 +386,24 @@ export class OpenBrowser {
   async login(): Promise<void> {
     const os = detectOS();
 
-    // Stop Chrome service first
-    console.log('Stopping Chrome service...');
+    // Show pre-login session status
+    try {
+      const preSessions = await this.sessionManager.getSessions();
+      const notLoggedIn = preSessions.filter((s) => !s.active);
+      if (notLoggedIn.length > 0) {
+        console.log();
+        console.log('  Not logged in yet:');
+        for (const session of notLoggedIn) {
+          console.log(`    ${domainLabel(session.domain)}`);
+        }
+        console.log();
+      }
+    } catch {
+      // Browser may not be running, skip pre-login status
+    }
+
+    // Stop browser to open login window
+    console.log('Preparing login...');
     this.chromeService.stop();
 
     // Wait for Chrome to fully stop
@@ -322,32 +414,82 @@ export class OpenBrowser {
     }
 
     if (await this.chromeService.isRunning()) {
-      throw new Error('Chrome service did not stop within 5 seconds. Try: openbrowser stop');
+      throw new Error('Browser did not stop within 5 seconds. Try: openbrowser stop');
     }
 
     // Clean stale locks
     cleanStaleLocks(this.config.profileDir);
 
-    if (os === 'linux') {
-      await this.loginLinux();
-    } else {
-      await this.loginMacOS();
+    // SIGINT handler to clean up Chrome process
+    const cleanup = () => {
+      console.log('\nInterrupted. Cleaning up...');
+      try { this.chromeService.stop(); } catch { /* ignore */ }
+      console.log('Restart with: openbrowser start');
+      process.exit(130);
+    };
+    process.on('SIGINT', cleanup);
+
+    try {
+      if (os === 'linux') {
+        await this.loginLinux();
+      } else {
+        await this.loginMacOS();
+      }
+    } finally {
+      process.removeListener('SIGINT', cleanup);
     }
 
-    // Restart headless service
-    console.log('Restarting Chrome service...');
+    // Restart background browser
+    console.log('Starting background browser...');
     try {
-      this.chromeService.start();
+      await this.chromeService.start();
     } catch {
       console.log(
-        'Could not start service automatically. Start manually or run: openbrowser setup',
+        'Could not restart automatically. Run: openbrowser start',
       );
+      return;
+    }
+
+    // Show post-login session summary
+    try {
+      console.log();
+      console.log('Checking accounts...');
+      const postSessions = await this.sessionManager.getSessions();
+      let loggedIn = 0;
+      for (const session of postSessions) {
+        const label = domainLabel(session.domain).padEnd(16);
+        if (session.active) {
+          loggedIn++;
+          let expiry = '';
+          if (session.expiresInDays !== undefined) {
+            expiry = `(expires in ${session.expiresInDays} day${session.expiresInDays === 1 ? '' : 's'})`;
+          }
+          console.log(`    ${label} logged in ${expiry}`);
+        } else {
+          console.log(`    ${label} not logged in`);
+        }
+      }
+      console.log();
+      if (loggedIn === postSessions.length && loggedIn > 0) {
+        console.log(`  All ${loggedIn} accounts connected. Try:`);
+        console.log(`    openbrowser inbox       Read your unread emails`);
+        console.log(`    openbrowser prs         Check your open pull requests`);
+        console.log(`    openbrowser calendar    See today's meetings and events`);
+      } else {
+        console.log(`  ${loggedIn} of ${postSessions.length} accounts logged in.`);
+        if (loggedIn < postSessions.length) {
+          console.log(`  Run openbrowser login again to log into the rest.`);
+        }
+      }
+    } catch {
+      // Non-fatal
     }
   }
 
   private async loginMacOS(): Promise<void> {
-    console.log('Opening Chrome for login...');
-    console.log('Log into your accounts, then close this Chrome window.');
+    console.log();
+    console.log('  A browser window will open.');
+    console.log('  Log into Google, GitHub, and LinkedIn, then close the window.');
     console.log();
 
     const chrome = this.chromeService.launchForLogin();
@@ -356,41 +498,86 @@ export class OpenBrowser {
       chrome.on('exit', () => resolve());
     });
 
-    console.log('Chrome closed.');
+    console.log('Browser closed.');
   }
 
   private async loginLinux(): Promise<void> {
-    // Start Xvfb
-    console.log('Starting virtual display...');
+    // Ensure VNC password is set (might not be if setup wasn't run)
+    if (!this.config.vncPassword) {
+      this.config.vncPassword = randomPassword();
+      saveConfig(this.config, this.configPath ?? getConfigPath());
+    }
+
+    // Verify required binaries
+    if (!hasCommand('x11vnc')) {
+      throw new Error('Remote login requires x11vnc. Install with: apt install x11vnc');
+    }
+
+    // Start virtual display + browser + VNC
+    console.log('Starting remote login session...');
     await this.chromeService.startXvfb();
-
-    // Launch Chrome on virtual display
-    console.log('Starting Chrome on virtual display...');
     const chrome = this.chromeService.launchForLogin();
-
-    // Start VNC
-    console.log('Starting VNC server...');
     const vnc = this.chromeService.startVnc();
 
     console.log();
-    console.log(`Connect via: ssh -L ${this.config.vncPort}:localhost:${this.config.vncPort} <host>`);
-    console.log(`Then open:   vnc://localhost:${this.config.vncPort}`);
-    console.log(`Password:    ${this.config.vncPassword}`);
+    console.log('  To log in from your computer:');
     console.log();
-    console.log('Log into your accounts, then disconnect VNC.');
-    console.log('VNC will auto-close after disconnect.');
+    console.log(`  1. Forward the connection:  ssh -L ${this.config.vncPort}:localhost:${this.config.vncPort} <your-server>`);
+    console.log(`  2. Open a VNC viewer:       vnc://localhost:${this.config.vncPort}`);
+    console.log(`  3. Password:                ${this.config.vncPassword}`);
+    console.log();
+    console.log('  Log into Google, GitHub, and LinkedIn, then disconnect.');
+    console.log('  The session will close automatically after you disconnect.');
 
     // Wait for VNC to exit (x11vnc -once exits after first disconnect)
     await new Promise<void>((resolve) => {
       vnc.on('exit', () => resolve());
     });
 
-    // Kill Chrome on virtual display
+    // Kill Chrome on virtual display and stop Xvfb
     chrome.kill();
-    console.log('VNC disconnected. Chrome closed.');
+    this.chromeService.stopXvfb();
+    console.log('Login session closed.');
   }
 
-  async setup(): Promise<{ servicePath: string; mcpConfig: object }> {
+  private tryInstallMcpConfig(
+    tool: 'claude-desktop' | 'cursor',
+    mcpEntry: unknown,
+  ): 'installed' | 'already' | null {
+    const home = process.env['HOME'] ?? '~';
+    let configPath: string;
+    if (tool === 'claude-desktop') {
+      configPath = detectOS() === 'darwin'
+        ? join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+        : join(home, '.config', 'Claude', 'claude_desktop_config.json');
+    } else {
+      configPath = join(home, '.cursor', 'mcp.json');
+    }
+
+    try {
+      // Only auto-install if the config file already exists (tool is installed)
+      if (!existsSync(configPath)) return null;
+
+      let config: Record<string, unknown> = {};
+      try {
+        const raw = readFileSync(configPath, 'utf-8');
+        config = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        // Corrupted or empty file, start fresh
+      }
+
+      const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
+      if (servers.openbrowser) return 'already'; // Already configured, don't overwrite
+      servers.openbrowser = mcpEntry;
+      config.mcpServers = servers;
+      writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+      return 'installed';
+    } catch {
+      return null; // Permission error, etc. Non-fatal.
+    }
+  }
+
+  async setup(): Promise<SetupData> {
     // Ensure directories exist
     const configDir = getConfigDir();
     if (!existsSync(configDir)) {
@@ -400,8 +587,14 @@ export class OpenBrowser {
       mkdirSync(this.config.profileDir, { recursive: true });
     }
 
-    // Save default config
-    saveConfig(this.config, this.configPath);
+    // Generate a real VNC password if not yet set
+    if (!this.config.vncPassword) {
+      this.config.vncPassword = randomPassword();
+    }
+
+    // Save config
+    const configPath = this.configPath ?? getConfigPath();
+    saveConfig(this.config, configPath);
 
     // Install service
     let servicePath: string;
@@ -413,28 +606,48 @@ export class OpenBrowser {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('EACCES') || msg.includes('permission denied')) {
-        console.error(`Permission denied writing service file.`);
-        console.error('On Linux, run with sudo: sudo npx openbrowser setup');
-        console.error('Or the service will be installed in user mode if available.');
-        process.exit(1);
+        throw new Error(
+          'Permission denied writing service file. ' +
+          'On Linux, run with sudo: sudo npx openbrowser setup',
+        );
       }
       throw err;
     }
 
-    console.log('Setup complete.');
-    console.log();
-    console.log(instructions);
-    console.log();
-    console.log('MCP configuration (add to your claude_desktop_config.json):');
     const mcpConfig = this.chromeService.getMcpConfig();
-    console.log(JSON.stringify(mcpConfig, null, 2));
-    console.log();
-    console.log('Next step: openbrowser login');
 
-    return { servicePath, mcpConfig };
+    // Auto-start the service
+    let autoStarted = false;
+    try {
+      await this.chromeService.start();
+      autoStarted = true;
+    } catch {
+      // Non-fatal: service installed but could not auto-start
+    }
+
+    // Auto-install MCP config into Claude Desktop or Cursor
+    let mcpAutoInstalled: 'claude-desktop' | 'cursor' | undefined;
+    let mcpAlreadyConfigured: 'claude-desktop' | 'cursor' | undefined;
+    const mcpEntry = (mcpConfig as { mcpServers: Record<string, unknown> }).mcpServers.openbrowser;
+
+    for (const tool of ['claude-desktop', 'cursor'] as const) {
+      const result = this.tryInstallMcpConfig(tool, mcpEntry);
+      if (result === 'installed') { mcpAutoInstalled = tool; break; }
+      if (result === 'already') { mcpAlreadyConfigured = tool; break; }
+    }
+
+    return {
+      servicePath,
+      mcpConfig,
+      configPath,
+      instructions,
+      autoStarted,
+      mcpAutoInstalled,
+      mcpAlreadyConfigured,
+    };
   }
 }
 
-export type { Config, StatusData, SessionInfo, DoctorData, DoctorCheck, CommandOutput, AuthCookieSpec } from './types.js';
+export type { Config, StatusData, SessionInfo, DoctorData, DoctorCheck, SetupData, CommandOutput, AuthCookieSpec } from './types.js';
 export type { Recipe, RecipeListItem, RecipeOptions, PrsResult, InboxResult, LinkedInResult, SearchResult, IssuesResult, NotificationsResult, CalendarResult, ProfileResult, MessagesResult } from '../recipes/index.js';
 export { RecipeError, withRetry } from '../recipes/index.js';

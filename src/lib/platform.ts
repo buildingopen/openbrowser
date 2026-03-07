@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createServer } from 'node:net';
 import { existsSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -20,7 +21,31 @@ export function assertSupportedPlatform(): void {
 }
 
 export function detectOS(): Platform {
-  return process.platform as Platform;
+  const p = process.platform;
+  if (p !== 'darwin' && p !== 'linux') {
+    throw new Error(`Unsupported platform: ${p}. OpenBrowser supports macOS and Linux only.`);
+  }
+  return p;
+}
+
+export function checkPort(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, '127.0.0.1');
+  });
+}
+
+export function hasCommand(name: string): boolean {
+  try {
+    execFileSync('which', [name], { encoding: 'utf-8', stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const CHROME_PATHS_DARWIN = [

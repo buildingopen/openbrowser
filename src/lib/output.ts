@@ -8,6 +8,7 @@ import type {
   SessionInfo,
   DoctorData,
   AuthCookieSpec,
+  SetupData,
 } from './types.js';
 import type { RecipeListItem } from '../recipes/base.js';
 import { AUTH_COOKIE_SPECS } from './types.js';
@@ -44,7 +45,38 @@ export function createOutput<T>(
 export function resolveFormat(explicit?: string): 'json' | 'text' {
   if (explicit === 'json') return 'json';
   if (explicit === 'text') return 'text';
+  if (explicit !== undefined) {
+    throw new Error(`Unknown format: "${explicit}". Use "json" or "text".`);
+  }
   return process.stdout.isTTY ? 'text' : 'json';
+}
+
+const ERROR_PATTERNS: Array<[RegExp, string | ((...args: string[]) => string)]> = [
+  [/ECONNREFUSED/, 'Browser is not running. Start it with: openbrowser start'],
+  [/EACCES|permission denied/i, 'Permission denied. On Linux, try: sudo openbrowser setup'],
+  [/Chrome not found/i, 'Google Chrome is not installed. Download it from https://google.com/chrome'],
+  [/Port (\d+) is in use by a non-Chrome/i, (_m, p) => `Port ${p} is already used by another program. Close it or change port in config`],
+  [/Service started but Chrome not responding/i, 'Browser started but not responding. Check: openbrowser doctor'],
+  [/Chrome not running or CDP not accessible/i, 'Browser is not running. Start it with: openbrowser start'],
+  [/No browser context available/i, 'Browser is not ready. Try: openbrowser restart'],
+  [/Chrome did not release port/i, 'Browser is still shutting down. Wait a moment and try again, or run: openbrowser doctor'],
+  [/Chrome not running\./i, 'Browser is not running. Start it with: openbrowser start'],
+  [/lsof -i :(\d+)/i, (_m, p) => `Port ${p} is in use by another program. Run: openbrowser doctor`],
+];
+
+export function humanizeError(msg: string): string {
+  for (const [pattern, replacement] of ERROR_PATTERNS) {
+    const match = msg.match(pattern);
+    if (match) {
+      return typeof replacement === 'function' ? replacement(match[0], match[1]) : replacement;
+    }
+  }
+  return msg;
+}
+
+export function domainLabel(domain: string): string {
+  const spec = AUTH_COOKIE_SPECS.find((s) => s.domain === domain);
+  return spec?.label ?? domain;
 }
 
 export function printOutput<T>(output: CommandOutput<T>, format: 'json' | 'text'): void {
@@ -70,6 +102,9 @@ export function printOutput<T>(output: CommandOutput<T>, format: 'json' | 'text'
     case 'domain:list':
       printDomainListText(output as unknown as CommandOutput<AuthCookieSpec[]>);
       break;
+    case 'setup':
+      printSetupText(output as unknown as CommandOutput<SetupData>);
+      break;
     default:
       if (output.command.startsWith('recipe:')) {
         printRecipeResultText(output);
@@ -85,20 +120,16 @@ function printStatusText(output: CommandOutput<StatusData>): void {
   const { data } = output;
 
   console.log();
-  console.log(chalk.bold('Chrome'));
-  if (data.chrome.running) {
-    console.log(`  Status:    ${chalk.green('running')}${data.chrome.pid ? ` (pid ${data.chrome.pid})` : ''}`);
-    console.log(`  Version:   ${data.chrome.version ?? 'unknown'}`);
-    console.log(`  Endpoint:  ${data.chrome.endpoint ?? 'unknown'}`);
-  } else {
-    console.log(`  Status:    ${chalk.red('not running')}`);
-  }
-  console.log(`  Profile:   ${data.profile}`);
+  console.log(`  Browser           ${data.chrome.running ? chalk.green('running') : chalk.red('not running')}`);
 
-  console.log();
-  console.log(chalk.bold('Sessions'));
-  if (data.sessions.length === 0) {
-    console.log('  No tracked sessions.');
+  if (data.sessions.length === 0 && !data.chrome.running) {
+    console.log();
+    console.log(`  No accounts set up yet.`);
+    console.log(`  Run: ${chalk.green('openbrowser setup')}`);
+  } else if (data.sessions.length === 0) {
+    console.log();
+    console.log(`  No accounts logged in.`);
+    console.log(`  Run: ${chalk.green('openbrowser login')}`);
   } else {
     for (const session of data.sessions) {
       printSessionLine(session);
@@ -108,85 +139,203 @@ function printStatusText(output: CommandOutput<StatusData>): void {
 }
 
 function printSessionLine(session: SessionInfo): void {
-  const domain = session.domain.padEnd(16);
+  const label = domainLabel(session.domain).padEnd(16);
+
   if (!session.active) {
-    const reason = session.warning ?? 'inactive';
-    console.log(`  ${domain} ${chalk.red('inactive')}  ${chalk.dim(reason)}`);
+    const isExpired = session.warning?.toLowerCase().includes('expired');
+    if (isExpired) {
+      console.log(`  ${label} ${chalk.red('expired')}`);
+      console.log(`  ${' '.repeat(16)} ${chalk.dim('Run: openbrowser login')}`);
+    } else {
+      console.log(`  ${label} ${chalk.red('not logged in')}`);
+    }
     return;
   }
 
   let expiry = '';
   if (session.expiresInDays !== undefined) {
-    expiry = `expires in ${session.expiresInDays} day${session.expiresInDays === 1 ? '' : 's'}`;
+    const days = session.expiresInDays;
+    const text = `expires in ${days} day${days === 1 ? '' : 's'}`;
+    if (days <= 3) {
+      expiry = chalk.red(text);
+    } else if (days <= 7) {
+      expiry = chalk.yellow(text);
+    } else {
+      expiry = chalk.dim(text);
+    }
   }
 
   if (session.warning) {
-    console.log(`  ${domain} ${chalk.yellow('active')}    ${expiry}  ${chalk.yellow('[!]')}`);
+    console.log(`  ${label} ${chalk.yellow('logged in')}     ${expiry}`);
+    console.log(`  ${' '.repeat(16)} ${chalk.yellow(session.warning)}`);
   } else {
-    console.log(`  ${domain} ${chalk.green('active')}    ${expiry}`);
+    console.log(`  ${label} ${chalk.green('logged in')}     ${expiry}`);
   }
+}
+
+function printSetupText(output: CommandOutput<SetupData>): void {
+  if (!output.success || !output.data) {
+    console.log();
+    console.log(chalk.red(`Error: ${humanizeError(output.error ?? output.summary)}`));
+    console.log();
+    return;
+  }
+  const { data } = output;
+
+  console.log();
+  console.log(chalk.bold('Setup complete. Your AI can now browse as you.'));
+  console.log();
+
+  // Step 1: Browser ready
+  if (data.autoStarted) {
+    console.log(`  ${chalk.green('1.')} Browser installed and running`);
+  } else {
+    console.log(`  ${chalk.yellow('1.')} Browser installed but could not start automatically.`);
+    console.log(`     Run: ${chalk.green('openbrowser start')}`);
+  }
+  console.log();
+
+  // Step 2: Log in
+  console.log(`  ${chalk.bold('2.')} Log into your accounts`);
+  console.log(`     Run: ${chalk.green('openbrowser login')}`);
+  console.log();
+
+  // Step 3: Connect AI tool
+  if (data.mcpAutoInstalled) {
+    const toolName = data.mcpAutoInstalled === 'claude-desktop' ? 'Claude Desktop' : 'Cursor';
+    console.log(`  ${chalk.green('3.')} Connected to ${toolName} automatically`);
+  } else if (data.mcpAlreadyConfigured) {
+    const toolName = data.mcpAlreadyConfigured === 'claude-desktop' ? 'Claude Desktop' : 'Cursor';
+    console.log(`  ${chalk.green('3.')} Already connected to ${toolName}`);
+  } else {
+    console.log(`  ${chalk.bold('3.')} Connect to your AI tool ${chalk.dim('(optional)')}`);
+    console.log(`     Add this to your Claude Desktop or Cursor settings:`);
+    console.log();
+    console.log(chalk.dim(JSON.stringify(data.mcpConfig, null, 2)));
+    console.log();
+    console.log(`     ${chalk.dim('Not sure where to paste this? See: https://modelcontextprotocol.io/quickstart')}`);
+  }
+  console.log();
+  console.log(`  ${chalk.dim('Then your AI can check email, review PRs, and more.')}`);
+  console.log();
+}
+
+const CHECK_LABELS: Record<string, string> = {
+  'chrome-binary': 'Browser installed',
+  'profile-dir': 'Data folder',
+  'stale-locks': 'Clean state',
+  'port-conflict': 'No conflicts',
+  'cdp-connection': 'Browser responding',
+  'config': 'Settings',
+  'xvfb': 'Virtual display',
+  'x11vnc': 'Remote login',
+};
+
+function humanizeCheckName(name: string): string {
+  if (CHECK_LABELS[name]) return CHECK_LABELS[name];
+  // session-google.com -> Google session
+  if (name.startsWith('session-')) {
+    const domain = name.replace('session-', '');
+    return `${domainLabel(domain)} session`;
+  }
+  return name;
 }
 
 function printDoctorText(output: CommandOutput<DoctorData>): void {
   const { data } = output;
 
+  const passes = data.checks.filter((c) => c.status === 'pass');
+  const fails = data.checks.filter((c) => c.status === 'fail');
+  const warns = data.checks.filter((c) => c.status === 'warn');
+
   console.log();
   console.log(chalk.bold('OpenBrowser Doctor'));
   console.log();
 
-  for (const check of data.checks) {
-    const icon =
-      check.status === 'pass'
-        ? chalk.green('PASS')
-        : check.status === 'warn'
-          ? chalk.yellow('WARN')
-          : chalk.red('FAIL');
+  // Summary line
+  const parts: string[] = [];
+  parts.push(chalk.green(`${passes.length} passed`));
+  if (fails.length > 0) parts.push(chalk.red(`${fails.length} failed`));
+  if (warns.length > 0) parts.push(chalk.yellow(`${warns.length} warning${warns.length === 1 ? '' : 's'}`));
+  console.log(`  ${parts.join(', ')}`);
+  console.log();
 
-    console.log(`  ${icon}  ${check.name}: ${check.message}`);
+  // Failures expanded
+  for (const check of fails) {
+    console.log(`  ${chalk.red('FAIL')}  ${humanizeCheckName(check.name)}`);
+    console.log(`        ${check.message}`);
     if (check.fix) {
-      console.log(`         ${chalk.dim('Fix:')} ${check.fix}`);
+      console.log(`        Fix: ${check.fix}`);
     }
+    console.log();
   }
 
-  console.log();
-  if (data.healthy) {
-    console.log(chalk.green('All checks passed.'));
-  } else {
-    const fails = data.checks.filter((c) => c.status === 'fail').length;
-    const warns = data.checks.filter((c) => c.status === 'warn').length;
-    console.log(
-      chalk.red(
-        `${fails} failure${fails === 1 ? '' : 's'}, ${warns} warning${warns === 1 ? '' : 's'}`,
-      ),
-    );
-  }
-  console.log();
-}
-
-function printRecipeListText(output: CommandOutput<RecipeListItem[]>): void {
-  console.log();
-  console.log(chalk.bold('Available Recipes'));
-  console.log();
-
-  for (const recipe of output.data) {
-    console.log(`  ${chalk.green(recipe.name.padEnd(12))} ${recipe.description}`);
-    console.log(`  ${' '.repeat(12)} ${chalk.dim(`requires: ${recipe.requires.join(', ')}`)}`);
-    if (recipe.args && recipe.args.length > 0) {
-      for (const arg of recipe.args) {
-        const req = arg.required ? chalk.yellow('(required)') : chalk.dim('(optional)');
-        console.log(`  ${' '.repeat(12)} ${chalk.dim(`--arg ${arg.name}=...`)} ${req} ${chalk.dim(arg.description)}`);
-      }
+  // Warnings expanded
+  for (const check of warns) {
+    console.log(`  ${chalk.yellow('WARN')}  ${humanizeCheckName(check.name)}`);
+    console.log(`        ${check.message}`);
+    if (check.fix) {
+      console.log(`        Fix: ${check.fix}`);
     }
+    console.log();
+  }
+
+  // Passes collapsed
+  if (passes.length > 0) {
+    if (fails.length > 0 || warns.length > 0) {
+      console.log(chalk.dim('  ---'));
+    }
+    const passNames = passes.map((c) => humanizeCheckName(c.name)).join(', ');
+    console.log(`  ${chalk.green('PASS')}  ${passNames}`);
     console.log();
   }
 }
 
+const RECIPE_CATEGORIES: Record<string, string[]> = {
+  'GitHub': ['prs', 'issues', 'notifications'],
+  'Google': ['inbox', 'calendar', 'search'],
+  'LinkedIn': ['linkedin', 'profile', 'messages'],
+};
+
+function printRecipeListText(output: CommandOutput<RecipeListItem[]>): void {
+  console.log();
+  console.log(chalk.bold('What Your AI Can Do'));
+
+  const recipeMap = new Map(output.data.map((r) => [r.name, r]));
+
+  for (const [category, names] of Object.entries(RECIPE_CATEGORIES)) {
+    console.log();
+    console.log(`  ${chalk.bold(category)}`);
+    for (const name of names) {
+      const recipe = recipeMap.get(name);
+      if (!recipe) continue;
+      console.log(`    ${chalk.green(name.padEnd(16))} ${recipe.description}`);
+      recipeMap.delete(name);
+    }
+  }
+
+  // Any uncategorized recipes
+  if (recipeMap.size > 0) {
+    console.log();
+    console.log(`  ${chalk.bold('Other')}`);
+    for (const recipe of recipeMap.values()) {
+      console.log(`    ${chalk.green(recipe.name.padEnd(16))} ${recipe.description}`);
+    }
+  }
+
+  console.log();
+  console.log(`  ${chalk.dim('Run:')}    openbrowser prs`);
+  console.log(`          openbrowser search "your search terms"`);
+  console.log(`  ${chalk.dim('Via MCP: Your AI tool runs these automatically')}`);
+  console.log();
+}
+
 function printSessionsText(output: CommandOutput<SessionInfo[]>): void {
   console.log();
-  console.log(chalk.bold('Tracked Sessions'));
+  console.log(chalk.bold('Connected Accounts'));
   console.log();
   if (output.data.length === 0) {
-    console.log('  No tracked sessions.');
+    console.log('  No accounts connected.');
   } else {
     for (const session of output.data) {
       printSessionLine(session);
@@ -197,13 +346,17 @@ function printSessionsText(output: CommandOutput<SessionInfo[]>): void {
 
 function printDomainListText(output: CommandOutput<AuthCookieSpec[]>): void {
   console.log();
-  console.log(chalk.bold('Tracked Domains'));
+  console.log(chalk.bold('Tracked Accounts'));
   console.log();
   const builtInDomains = AUTH_COOKIE_SPECS.map((s) => s.domain);
   for (const spec of output.data) {
     const isBuiltIn = builtInDomains.includes(spec.domain);
-    const tag = isBuiltIn ? chalk.dim('(built-in)') : chalk.cyan('(custom)');
-    console.log(`  ${chalk.green(spec.domain.padEnd(20))} ${tag}  cookies: ${spec.requiredCookies.join(', ')}`);
+    const label = spec.label ?? spec.domain;
+    if (isBuiltIn) {
+      console.log(`  ${chalk.green(label.padEnd(20))} ${chalk.dim(spec.domain)}`);
+    } else {
+      console.log(`  ${chalk.green(label.padEnd(20))} ${chalk.dim(spec.domain)} ${chalk.cyan('(custom)')}`);
+    }
   }
   console.log();
 }
@@ -213,8 +366,67 @@ function printActionText(output: CommandOutput<unknown>): void {
   if (output.success) {
     console.log(chalk.green(output.summary));
   } else {
-    console.log(chalk.red(`Error: ${output.error ?? output.summary}`));
+    console.log(chalk.red(`Error: ${humanizeError(output.error ?? output.summary)}`));
   }
+  console.log();
+}
+
+export interface WelcomeStatus {
+  chromeRunning: boolean;
+  sessions: SessionInfo[];
+}
+
+export function printWelcome(version: string, status?: WelcomeStatus): void {
+  console.log();
+  console.log(chalk.bold(`OpenBrowser v${version}`));
+  console.log();
+
+  if (!status) {
+    console.log(`  Not set up yet.`);
+    console.log();
+    console.log(`  Run ${chalk.green('openbrowser setup')} to get started (~2 min)`);
+    console.log();
+    console.log(`  Once set up, AI tools like Claude and Cursor`);
+    console.log(`  can check email, review PRs, read LinkedIn,`);
+    console.log(`  search Google, and more.`);
+    console.log();
+    return;
+  }
+
+  console.log(`  Browser           ${status.chromeRunning ? chalk.green('running') : chalk.red('not running')}`);
+
+  let firstNotLoggedIn: string | undefined;
+  for (const session of status.sessions) {
+    const label = domainLabel(session.domain).padEnd(18);
+    if (session.active) {
+      let expiry = '';
+      if (session.expiresInDays !== undefined) {
+        expiry = ` (expires in ${session.expiresInDays} day${session.expiresInDays === 1 ? '' : 's'})`;
+      }
+      console.log(`  ${label} ${chalk.green('logged in')}${chalk.dim(expiry)}`);
+    } else {
+      console.log(`  ${label} ${chalk.red('not logged in')}`);
+      if (!firstNotLoggedIn) firstNotLoggedIn = domainLabel(session.domain);
+    }
+  }
+
+  console.log();
+
+  if (!status.chromeRunning) {
+    console.log(`  Next: ${chalk.green('openbrowser start')}   Start the browser`);
+  } else if (firstNotLoggedIn) {
+    console.log(`  Next: ${chalk.green('openbrowser login')}   Log into ${firstNotLoggedIn}`);
+  } else if (status.sessions.length > 0) {
+    console.log(`  ${chalk.green('Ready.')} Try any of these:`);
+    console.log();
+    console.log(`    ${chalk.green('openbrowser inbox')}          Read your unread emails`);
+    console.log(`    ${chalk.green('openbrowser prs')}            Check your open pull requests`);
+    console.log(`    ${chalk.green('openbrowser calendar')}       See today's meetings and events`);
+    console.log(`    ${chalk.green('openbrowser search "..."')}   Search Google as you`);
+    console.log();
+    console.log(`  ${chalk.dim('openbrowser recipe list')}  See all 9 recipes`);
+  }
+
   console.log();
 }
 
@@ -222,13 +434,13 @@ function printRecipeResultText(output: CommandOutput<unknown>): void {
   console.log();
 
   if (!output.success) {
-    console.log(chalk.red(`Error: ${output.error ?? output.summary}`));
+    console.log(chalk.red(`Error: ${humanizeError(output.error ?? output.summary)}`));
     console.log();
     return;
   }
 
   const recipeName = output.command.replace('recipe:', '');
-  console.log(chalk.bold(`Recipe: ${recipeName}`));
+  console.log(chalk.bold(recipeName));
   console.log(chalk.dim(output.summary));
   console.log();
 

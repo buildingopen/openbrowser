@@ -33,15 +33,17 @@ export async function recipeRunCommand(
     }
   }
 
+  const format = resolveFormat(options.format);
   try {
+    if (format === 'text') process.stderr.write('Running recipe...\n');
     const data = await ob.runRecipe(name, args);
     const summary = formatRecipeSummary(name, data);
     const output = createOutput(`recipe:${name}`, data, summary);
-    printOutput(output, resolveFormat(options.format));
+    printOutput(output, format);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const output = createOutput(`recipe:${name}`, null, message, false, message);
-    printOutput(output, resolveFormat(options.format));
+    printOutput(output, format);
     process.exitCode = 1;
   }
 }

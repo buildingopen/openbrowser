@@ -17,6 +17,7 @@ export interface StatusData {
   };
   profile: string;
   sessions: SessionInfo[];
+  sessionError?: string;
 }
 
 export interface SessionInfo {
@@ -38,6 +39,16 @@ export interface DoctorCheck {
   status: 'pass' | 'fail' | 'warn';
   message: string;
   fix?: string;
+}
+
+export interface SetupData {
+  servicePath: string;
+  mcpConfig: object;
+  configPath: string;
+  instructions: string;
+  autoStarted: boolean;
+  mcpAutoInstalled?: 'claude-desktop' | 'cursor';
+  mcpAlreadyConfigured?: 'claude-desktop' | 'cursor';
 }
 
 export interface Config {

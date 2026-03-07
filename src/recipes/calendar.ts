@@ -1,11 +1,22 @@
 import type { Browser } from 'playwright-core';
 import type { Recipe, CalendarResult, CalendarEvent } from './base.js';
-import { newPage } from './base.js';
+import { newPage, warnIfEmpty } from './base.js';
+import { getCalendarCredentials, fetchCalendarViaApi } from './google-calendar-api.js';
+import { loadConfig } from '../lib/config.js';
 
 export const calendarRecipe: Recipe<CalendarResult> = {
   name: 'calendar',
-  description: "Check today's Google Calendar events",
+  description: "See today's meetings and events",
   requires: ['google.com'],
+
+  async runWithoutBrowser(): Promise<CalendarResult | null> {
+    const creds = getCalendarCredentials();
+    if (!creds) return null;
+    const config = loadConfig();
+    const result = await fetchCalendarViaApi(creds, config.timezone);
+    const { warning } = warnIfEmpty(result.events, 'calendar');
+    return { ...result, ...(warning ? { warning } : {}) };
+  },
 
   async run(browser: Browser): Promise<CalendarResult> {
     const today = new Date().toISOString().split('T')[0];
@@ -113,6 +124,7 @@ export const calendarRecipe: Recipe<CalendarResult> = {
     });
 
     await page.close();
-    return { events, total: events.length, date: today };
+    const { warning } = warnIfEmpty(events, 'calendar');
+    return { events, total: events.length, date: today, ...(warning ? { warning } : {}) };
   },
 };

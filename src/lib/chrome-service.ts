@@ -1,8 +1,9 @@
-import { execSync, spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { execSync, execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Config } from './types.js';
-import { detectOS, findChromeBinary, cleanStaleLocks } from './platform.js';
+import { detectOS, findChromeBinary, cleanStaleLocks, checkPort } from './platform.js';
+import { getConfigDir } from './platform.js';
 
 const SYSTEMD_TEMPLATE = (config: Config, chromeBinary: string, userMode: boolean) => `[Unit]
 Description=OpenBrowser - Authenticated Chrome with CDP
@@ -35,7 +36,9 @@ Environment=TZ=${config.timezone}
 WantedBy=${userMode ? 'default.target' : 'multi-user.target'}
 `;
 
-const LAUNCHD_TEMPLATE = (config: Config, chromeBinary: string) => `<?xml version="1.0" encoding="UTF-8"?>
+const LAUNCHD_TEMPLATE = (config: Config, chromeBinary: string) => {
+  const configDir = getConfigDir();
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -60,22 +63,28 @@ const LAUNCHD_TEMPLATE = (config: Config, chromeBinary: string) => `<?xml versio
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>ProcessType</key>
+    <string>Background</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>TZ</key>
         <string>${config.timezone}</string>
     </dict>
     <key>StandardErrorPath</key>
-    <string>/tmp/openbrowser-chrome.err</string>
+    <string>${configDir}/chrome.err</string>
     <key>StandardOutPath</key>
-    <string>/tmp/openbrowser-chrome.out</string>
+    <string>${configDir}/chrome.out</string>
 </dict>
 </plist>
 `;
+};
 
 export class ChromeService {
   private config: Config;
   private os: 'darwin' | 'linux';
+  private xvfbProcess: ChildProcess | null = null;
 
   constructor(config: Config) {
     this.config = config;
@@ -101,26 +110,42 @@ export class ChromeService {
   }
 
   async getPid(): Promise<number | null> {
+    // Try lsof first (macOS default, Linux with lsof installed)
     try {
-      // Find all PIDs listening on the CDP port, take the lowest (parent process)
       const output = execSync(
-        `lsof -ti :${this.config.cdpPort} 2>/dev/null || true`,
+        `lsof -ti :${this.config.cdpPort} 2>/dev/null`,
         { encoding: 'utf-8' },
       ).trim();
-      if (!output) return null;
-      const pids = output.split('\n').map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n));
-      if (pids.length === 0) return null;
-      return Math.min(...pids);
+      if (output) {
+        const pids = output.split('\n').map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n));
+        if (pids.length > 0) return Math.min(...pids);
+      }
     } catch {
-      return null;
+      // lsof not available or no match, try ss
     }
+
+    // Fallback: ss (Linux without lsof)
+    try {
+      const output = execSync(
+        `ss -tlnp 2>/dev/null | grep ':${this.config.cdpPort} '`,
+        { encoding: 'utf-8' },
+      ).trim();
+      if (output) {
+        const match = output.match(/pid=(\d+)/);
+        if (match) return parseInt(match[1], 10);
+      }
+    } catch {
+      // ss not available or no match
+    }
+
+    return null;
   }
 
   install(): { path: string; instructions: string } {
     const chromeBinary = findChromeBinary();
     if (!chromeBinary) {
       throw new Error(
-        'Chrome not found. Install Google Chrome or Chromium first.',
+        'Google Chrome is not installed. Download it from https://google.com/chrome',
       );
     }
 
@@ -160,26 +185,9 @@ export class ChromeService {
     const content = SYSTEMD_TEMPLATE(this.config, chromeBinary, !root);
     writeFileSync(servicePath, content, 'utf-8');
 
-    if (root) {
-      return {
-        path: servicePath,
-        instructions: [
-          'Service installed. To start:',
-          '  systemctl daemon-reload',
-          '  systemctl enable openbrowser',
-          '  systemctl start openbrowser',
-        ].join('\n'),
-      };
-    }
-
     return {
       path: servicePath,
-      instructions: [
-        'Service installed (user mode). To start:',
-        '  systemctl --user daemon-reload',
-        '  systemctl --user enable openbrowser',
-        '  systemctl --user start openbrowser',
-      ].join('\n'),
+      instructions: 'Run: openbrowser start',
     };
   }
 
@@ -201,13 +209,7 @@ export class ChromeService {
 
     return {
       path: plistPath,
-      instructions: [
-        'Service installed. To start:',
-        `  launchctl load ${plistPath}`,
-        '',
-        'To stop:',
-        `  launchctl unload ${plistPath}`,
-      ].join('\n'),
+      instructions: 'Run: openbrowser start',
     };
   }
 
@@ -216,18 +218,70 @@ export class ChromeService {
     execSync(`systemctl${flag} ${action} openbrowser`, { stdio: 'inherit' });
   }
 
-  start(): void {
+  private getUid(): number {
+    return process.getuid?.() ?? 501;
+  }
+
+  private getPlistPath(): string {
+    return join(
+      process.env['HOME'] ?? '~',
+      'Library',
+      'LaunchAgents',
+      'com.openbrowser.chrome.plist',
+    );
+  }
+
+  async start(): Promise<void> {
+    // Check port availability first
+    const portFree = await checkPort(this.config.cdpPort);
+    if (!portFree) {
+      // If Chrome is already responding, nothing to do
+      const info = await this.getCdpInfo();
+      if (info.running) return;
+      throw new Error(
+        `Port ${this.config.cdpPort} is already used by another program. ` +
+        `Close it or run: openbrowser doctor`,
+      );
+    }
+
     if (this.os === 'linux') {
+      // Reload unit files in case service was re-installed
+      try { this.systemctl('daemon-reload'); } catch { /* ignore */ }
       this.systemctl('start');
     } else {
-      const plistPath = join(
-        process.env['HOME'] ?? '~',
-        'Library',
-        'LaunchAgents',
-        'com.openbrowser.chrome.plist',
-      );
-      execSync(`launchctl load ${plistPath}`, { stdio: 'inherit' });
+      const plistPath = this.getPlistPath();
+      const uid = this.getUid();
+
+      // Bootout existing service first (handles re-installs)
+      try {
+        execFileSync('launchctl', ['bootout', `gui/${uid}/com.openbrowser.chrome`], { stdio: 'pipe' });
+      } catch {
+        // Not loaded, that's fine
+      }
+
+      // Modern API: bootstrap
+      try {
+        execFileSync('launchctl', ['bootstrap', `gui/${uid}`, plistPath], { stdio: 'pipe' });
+      } catch (bootstrapErr) {
+        // Fall back to legacy load; if both fail, throw the original error
+        try {
+          execFileSync('launchctl', ['load', plistPath], { stdio: 'pipe' });
+        } catch {
+          throw bootstrapErr;
+        }
+      }
     }
+
+    // Verify Chrome actually responds (poll for up to 5s)
+    for (let i = 0; i < 25; i++) {
+      await new Promise((r) => setTimeout(r, 200));
+      const info = await this.getCdpInfo();
+      if (info.running) return;
+    }
+
+    throw new Error(
+      `Browser started but not responding. Run: openbrowser doctor`,
+    );
   }
 
   stop(): void {
@@ -238,23 +292,38 @@ export class ChromeService {
         // service might not be running
       }
     } else {
-      const plistPath = join(
-        process.env['HOME'] ?? '~',
-        'Library',
-        'LaunchAgents',
-        'com.openbrowser.chrome.plist',
-      );
+      const uid = this.getUid();
+
+      // Modern API: bootout
       try {
-        execSync(`launchctl unload ${plistPath}`, { stdio: 'inherit' });
+        execFileSync('launchctl', ['bootout', `gui/${uid}/com.openbrowser.chrome`], { stdio: 'pipe' });
+        return;
+      } catch {
+        // Fall back to legacy unload
+      }
+
+      const plistPath = this.getPlistPath();
+      try {
+        execFileSync('launchctl', ['unload', plistPath], { stdio: 'pipe' });
       } catch {
         // service might not be loaded
       }
     }
   }
 
-  restart(): void {
+  async restart(): Promise<void> {
     this.stop();
-    this.start();
+    // Wait for port to actually be released (up to 6s)
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 200));
+      if (await checkPort(this.config.cdpPort)) break;
+    }
+    if (!(await checkPort(this.config.cdpPort))) {
+      throw new Error(
+        `Browser is still shutting down. Wait a moment and try again, or run: openbrowser stop`,
+      );
+    }
+    await this.start();
   }
 
   launchForLogin(): ChildProcess {
@@ -264,7 +333,7 @@ export class ChromeService {
       const installHint = os === 'darwin'
         ? 'Install from https://google.com/chrome or: brew install --cask google-chrome'
         : 'Install with: sudo apt install google-chrome-stable (or: sudo dnf install google-chrome-stable)';
-      throw new Error(`Chrome not found. ${installHint}`);
+      throw new Error(`Google Chrome is not installed. ${installHint}`);
     }
 
     cleanStaleLocks(this.config.profileDir);
@@ -298,22 +367,48 @@ export class ChromeService {
     const display = this.config.xvfbDisplay;
     const lockFile = `/tmp/.X${display.replace(':', '')}-lock`;
 
-    // Check if already running
+    // Check if lock file exists but process is dead (stale lock)
     if (existsSync(lockFile)) {
-      return;
+      try {
+        const pid = parseInt(readFileSync(lockFile, 'utf-8').trim(), 10);
+        if (pid && !isNaN(pid)) {
+          try {
+            process.kill(pid, 0); // Check if process is alive
+            return; // Process is running, reuse it
+          } catch {
+            // Process is dead, remove stale lock
+            unlinkSync(lockFile);
+          }
+        }
+      } catch {
+        // Can't read lock file, remove it
+        try { unlinkSync(lockFile); } catch { /* ignore */ }
+      }
     }
 
-    spawn('Xvfb', [display, '-screen', '0', '1280x800x24', '-ac'], {
+    this.xvfbProcess = spawn('Xvfb', [display, '-screen', '0', '1280x800x24', '-ac'], {
       stdio: 'ignore',
       detached: true,
-    }).unref();
+    });
+    this.xvfbProcess.unref();
 
     // Wait for Xvfb to create lock file (up to 5 seconds)
     for (let i = 0; i < 50; i++) {
       if (existsSync(lockFile)) return;
       await new Promise((r) => setTimeout(r, 100));
     }
-    throw new Error(`Xvfb failed to start on ${display}. Is Xvfb installed? Try: apt install xvfb`);
+    throw new Error('Virtual display failed to start. Install it with: apt install xvfb');
+  }
+
+  stopXvfb(): void {
+    if (this.xvfbProcess) {
+      try { this.xvfbProcess.kill(); } catch { /* already dead */ }
+      this.xvfbProcess = null;
+      // Only clean up lock file if we owned the process
+      const display = this.config.xvfbDisplay;
+      const lockFile = `/tmp/.X${display.replace(':', '')}-lock`;
+      try { unlinkSync(lockFile); } catch { /* ignore */ }
+    }
   }
 
   startVnc(): ChildProcess {
@@ -333,7 +428,7 @@ export class ChromeService {
   }
 
   getMcpConfig(): object {
-    const args: string[] = ['openbrowser-ai', 'mcp'];
+    const args: string[] = ['-y', 'openbrowser-ai', 'mcp'];
     const defaultProfile = join(
       process.env['HOME'] ?? '~',
       '.openbrowser',

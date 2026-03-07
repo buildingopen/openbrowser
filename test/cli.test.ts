@@ -13,6 +13,7 @@ describe('CLI', () => {
 
   it('--help shows all commands', () => {
     const out = execSync(`node ${CLI} --help`, { encoding: 'utf-8' });
+    // Core commands visible in help
     assert.ok(out.includes('setup'));
     assert.ok(out.includes('login'));
     assert.ok(out.includes('status'));
@@ -20,10 +21,12 @@ describe('CLI', () => {
     assert.ok(out.includes('start'));
     assert.ok(out.includes('stop'));
     assert.ok(out.includes('restart'));
-    assert.ok(out.includes('sessions'));
-    assert.ok(out.includes('domain'));
-    assert.ok(out.includes('mcp'));
-    assert.ok(out.includes('recipe'));
+    // Quick commands shown in custom help text
+    assert.ok(out.includes('inbox'));
+    assert.ok(out.includes('prs'));
+    assert.ok(out.includes('calendar'));
+    assert.ok(out.includes('search'));
+    assert.ok(out.includes('recipe list'));
   });
 
   it('status --format json returns valid JSON with envelope', () => {
@@ -104,6 +107,26 @@ describe('CLI', () => {
     assert.ok(names.includes('prs'));
     assert.ok(names.includes('calendar'));
     assert.ok(names.includes('messages'));
+  });
+
+  it('doctor checks include port-conflict', () => {
+    try {
+      const out = execSync(`node ${CLI} doctor --format json`, { encoding: 'utf-8' });
+      const parsed = JSON.parse(out);
+      const portCheck = parsed.data.checks.find((c: { name: string }) => c.name === 'port-conflict');
+      assert.ok(portCheck, 'doctor missing port-conflict check');
+    } catch (err: unknown) {
+      const e = err as { stdout?: Buffer };
+      const out = e.stdout?.toString() ?? '';
+      const parsed = JSON.parse(out);
+      const portCheck = parsed.data.checks.find((c: { name: string }) => c.name === 'port-conflict');
+      assert.ok(portCheck, 'doctor missing port-conflict check');
+    }
+  });
+
+  it('setup --help shows --format option', () => {
+    const out = execSync(`node ${CLI} setup --help`, { encoding: 'utf-8' });
+    assert.ok(out.includes('--format'));
   });
 
   it('Windows platform guard exits with message', () => {

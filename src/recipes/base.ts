@@ -6,6 +6,8 @@ export interface Recipe<T = unknown> {
   requires: string[];
   args?: RecipeArg[];
   run(browser: Browser, args?: Record<string, string>): Promise<T>;
+  /** Try to run without a browser (e.g., via API token). Return null to fall back to browser. */
+  runWithoutBrowser?(args?: Record<string, string>): Promise<T | null>;
 }
 
 export interface RecipeArg {
@@ -24,6 +26,7 @@ export interface RecipeListItem {
 export interface PrsResult {
   prs: PrInfo[];
   total: number;
+  warning?: string;
 }
 
 export interface PrInfo {
@@ -37,6 +40,7 @@ export interface PrInfo {
 export interface InboxResult {
   unread: number;
   messages: EmailInfo[];
+  warning?: string;
 }
 
 export interface EmailInfo {
@@ -49,6 +53,7 @@ export interface EmailInfo {
 export interface LinkedInResult {
   notifications: LinkedInNotification[];
   total: number;
+  warning?: string;
 }
 
 export interface LinkedInNotification {
@@ -60,6 +65,7 @@ export interface SearchResult {
   query: string;
   results: SearchResultItem[];
   total: number;
+  warning?: string;
 }
 
 export interface SearchResultItem {
@@ -73,6 +79,7 @@ export interface SearchResultItem {
 export interface IssuesResult {
   issues: IssueInfo[];
   total: number;
+  warning?: string;
 }
 
 export interface IssueInfo {
@@ -87,6 +94,7 @@ export interface IssueInfo {
 export interface NotificationsResult {
   notifications: GhNotification[];
   total: number;
+  warning?: string;
 }
 
 export interface GhNotification {
@@ -102,6 +110,7 @@ export interface CalendarResult {
   events: CalendarEvent[];
   total: number;
   date: string;
+  warning?: string;
 }
 
 export interface CalendarEvent {
@@ -123,6 +132,7 @@ export interface ProfileResult {
 export interface MessagesResult {
   conversations: MessageThread[];
   total: number;
+  warning?: string;
 }
 
 export interface MessageThread {
@@ -130,6 +140,15 @@ export interface MessageThread {
   lastMessage: string;
   time: string;
   unread: boolean;
+}
+
+// Empty-result warning
+
+export function warnIfEmpty<T>(items: T[], recipeName: string): { items: T[]; warning?: string } {
+  if (items.length === 0) {
+    return { items, warning: `${recipeName}: no results found. Page structure may have changed.` };
+  }
+  return { items };
 }
 
 // Recipe infrastructure
@@ -193,7 +212,7 @@ export async function withRetry<T>(
 export async function newPage(browser: Browser, url: string): Promise<Page> {
   const context = browser.contexts()[0];
   if (!context) {
-    throw new Error('No browser context available. Is Chrome running with a profile?');
+    throw new Error('Browser is not ready. Try: openbrowser restart');
   }
   const page = await context.newPage();
   try {
