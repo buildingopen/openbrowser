@@ -1,5 +1,7 @@
 # OpenBrowser
 
+[openbrowser.buildingopen.org](https://openbrowser.buildingopen.org)
+
 **Give AI your browser.** Check email, review PRs, read LinkedIn messages, search Google, see your calendar -- all from one setup. No API keys. No OAuth. No per-service config.
 
 Log into Chrome once, and AI tools like Claude, Cursor, and others can browse the web as you.
