@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:net';
-import { existsSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -102,4 +102,57 @@ export function cleanStaleLocks(profileDir: string): void {
       // ignore errors (e.g., file already gone)
     }
   }
+}
+
+function findFileRecursive(dir: string, name: string, maxDepth: number): string | null {
+  if (maxDepth <= 0) return null;
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === name && entry.isFile()) return join(dir, entry.name);
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const found = findFileRecursive(join(dir, entry.name), name, maxDepth - 1);
+        if (found) return found;
+      }
+    }
+  } catch { /* permission error */ }
+  return null;
+}
+
+export function getHeadlessShellDir(): string {
+  return join(homedir(), '.openbrowser', 'headless-shell');
+}
+
+/**
+ * Find a locally installed chrome-headless-shell binary.
+ * Returns the binary path or null if not installed.
+ */
+export function findHeadlessShellBinary(): string | null {
+  const dir = getHeadlessShellDir();
+  if (!existsSync(dir)) return null;
+  return findFileRecursive(dir, 'chrome-headless-shell', 5);
+}
+
+/**
+ * Download chrome-headless-shell using @puppeteer/browsers.
+ * Stores it in ~/.openbrowser/headless-shell/.
+ * Returns the binary path.
+ */
+export function installHeadlessShell(): string {
+  const dir = getHeadlessShellDir();
+  mkdirSync(dir, { recursive: true });
+
+  execFileSync('npx', [
+    '-y', '@puppeteer/browsers', 'install',
+    'chrome-headless-shell@stable',
+    '--path', dir,
+  ], { encoding: 'utf-8', timeout: 120_000, stdio: 'pipe' });
+
+  const binary = findHeadlessShellBinary();
+  if (!binary) throw new Error('chrome-headless-shell installation failed');
+
+  try { execFileSync('chmod', ['+x', binary], { stdio: 'pipe' }); } catch { /* ignore */ }
+  return binary;
 }

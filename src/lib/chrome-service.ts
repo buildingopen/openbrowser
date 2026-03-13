@@ -2,7 +2,7 @@ import { execSync, execFileSync, spawn, type ChildProcess } from 'node:child_pro
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Config } from './types.js';
-import { detectOS, findChromeBinary, cleanStaleLocks, checkPort } from './platform.js';
+import { detectOS, findChromeBinary, findHeadlessShellBinary, installHeadlessShell, cleanStaleLocks, checkPort } from './platform.js';
 import { getConfigDir } from './platform.js';
 
 const SYSTEMD_TEMPLATE = (config: Config, chromeBinary: string, userMode: boolean) => `[Unit]
@@ -36,8 +36,24 @@ Environment=TZ=${config.timezone}
 WantedBy=${userMode ? 'default.target' : 'multi-user.target'}
 `;
 
-const LAUNCHD_TEMPLATE = (config: Config, chromeBinary: string) => {
+const LAUNCHD_TEMPLATE = (config: Config, chromeBinary: string, isHeadlessShell: boolean) => {
   const configDir = getConfigDir();
+  const args = [
+    chromeBinary,
+    `--user-data-dir=${config.profileDir}`,
+    // chrome-headless-shell is always headless; regular Chrome needs the flag
+    ...(isHeadlessShell ? [] : ['--headless=new']),
+    `--remote-debugging-port=${config.cdpPort}`,
+    '--remote-debugging-address=127.0.0.1',
+    '--disable-background-timer-throttling',
+    '--disable-renderer-backgrounding',
+    '--no-first-run',
+    '--disable-sync',
+    '--disable-gpu',
+    '--lang=en-US',
+    '--window-size=1280,800',
+  ];
+  const argsXml = args.map(a => `        <string>${a}</string>`).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -46,18 +62,7 @@ const LAUNCHD_TEMPLATE = (config: Config, chromeBinary: string) => {
     <string>com.openbrowser.chrome</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${chromeBinary}</string>
-        <string>--user-data-dir=${config.profileDir}</string>
-        <string>--headless=new</string>
-        <string>--remote-debugging-port=${config.cdpPort}</string>
-        <string>--remote-debugging-address=127.0.0.1</string>
-        <string>--disable-background-timer-throttling</string>
-        <string>--disable-renderer-backgrounding</string>
-        <string>--no-first-run</string>
-        <string>--disable-sync</string>
-        <string>--disable-gpu</string>
-        <string>--lang=en-US</string>
-        <string>--window-size=1280,800</string>
+${argsXml}
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -142,21 +147,40 @@ export class ChromeService {
   }
 
   install(): { path: string; instructions: string } {
+    if (!existsSync(this.config.profileDir)) {
+      mkdirSync(this.config.profileDir, { recursive: true });
+    }
+
+    if (this.os === 'linux') {
+      const chromeBinary = findChromeBinary();
+      if (!chromeBinary) {
+        throw new Error(
+          'Google Chrome is not installed. Download it from https://google.com/chrome',
+        );
+      }
+      return this.installSystemd(chromeBinary);
+    }
+
+    // macOS: prefer chrome-headless-shell so regular Chrome stays usable
+    const existingShell = findHeadlessShellBinary();
+    if (existingShell) {
+      return this.installLaunchd(existingShell, true);
+    }
+
+    try {
+      const shell = installHeadlessShell();
+      return this.installLaunchd(shell, true);
+    } catch {
+      // Download failed (no npm, network error), fall back to regular Chrome
+    }
+
     const chromeBinary = findChromeBinary();
     if (!chromeBinary) {
       throw new Error(
         'Google Chrome is not installed. Download it from https://google.com/chrome',
       );
     }
-
-    if (!existsSync(this.config.profileDir)) {
-      mkdirSync(this.config.profileDir, { recursive: true });
-    }
-
-    if (this.os === 'linux') {
-      return this.installSystemd(chromeBinary);
-    }
-    return this.installLaunchd(chromeBinary);
+    return this.installLaunchd(chromeBinary, false);
   }
 
   private isRoot(): boolean {
@@ -191,7 +215,7 @@ export class ChromeService {
     };
   }
 
-  private installLaunchd(chromeBinary: string): {
+  private installLaunchd(chromeBinary: string, isHeadlessShell: boolean): {
     path: string;
     instructions: string;
   } {
@@ -204,7 +228,7 @@ export class ChromeService {
       mkdirSync(plistDir, { recursive: true });
     }
     const plistPath = join(plistDir, 'com.openbrowser.chrome.plist');
-    const content = LAUNCHD_TEMPLATE(this.config, chromeBinary);
+    const content = LAUNCHD_TEMPLATE(this.config, chromeBinary, isHeadlessShell);
     writeFileSync(plistPath, content, 'utf-8');
 
     return {
