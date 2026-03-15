@@ -1,0 +1,12 @@
+{
+  "name": "buildingopen/openbrowser",
+  "description": "Give AI your browser. Check email, track orders, download receipts -- all authenticated, no API keys. Open source MCP server + CLI.",
+  "accepts": [
+    {
+      "network": "eip155:8453",
+      "asset": "USDC",
+      "address": "YOUR_WALLET_ADDRESS"
+    }
+  ],
+  "resources": []
+}
